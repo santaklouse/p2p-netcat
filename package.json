@@ -1,6 +1,6 @@
 {
   "name": "p2p-netcat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Decentralized netcat over libp2p (Node.js and browser)",
   "type": "module",
   "main": "dist/index.js",
