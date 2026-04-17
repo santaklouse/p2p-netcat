@@ -1,0 +1,11 @@
+{
+  "defaultPort": 9091,
+  "relayAddress": "/ip4/10.64.208.1/tcp/9091/p2p/QmXoYpeEht5qZUpraaHV7BwFbCv5tjkkWhS2aoJR2eEpTv",
+  "autoConnect": true,
+  "timeout": 30000,
+  "pubsubTopics": [
+    "chat",
+    "broadcast",
+    "system"
+  ]
+}

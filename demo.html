@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Netcat Browser Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .status.stopped { background: #ffebee; color: #c62828; }
+        .status.started { background: #e8f5e8; color: #2e7d32; }
+        .status.connected { background: #e3f2fd; color: #1565c0; }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        textarea {
+            height: 120px;
+            resize: vertical;
+        }
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover { background: #1565c0; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.danger { background: #d32f2f; }
+        button.danger:hover { background: #c62828; }
+        button.success { background: #388e3c; }
+        button.success:hover { background: #2e7d32; }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        
+        .info-box {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .log {
+            background: #263238;
+            color: #aed581;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            border-radius: 4px;
+            height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌐 P2P Netcat Browser Demo</h1>
+    
+    <div class="container">
+        <h2>Управление узлом</h2>
+        <div id="node-status" class="status stopped">Узел не запущен</div>
+        
+        <div class="form-group">
+            <button id="start-btn" onclick="startNode()">🚀 Запустить узел</button>
+            <button id="stop-btn" onclick="stopNode()" disabled>🛑 Остановить узел</button>
+        </div>
+        
+        <div class="grid">
+            <div class="form-group">
+                <label>Peer ID:</label>
+                <div id="peer-id" class="info-box">не запущен</div>
+            </div>
+            <div class="form-group">
+                <label>Слушаемые адреса:</label>
+                <div id="listen-addrs" class="info-box">-</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>🔗 Соединения</h2>
+        <div class="form-group">
+            <label>Адрес для подключения:</label>
+            <input type="text" id="connect-addr" placeholder="/ip4/127.0.0.1/tcp/4001/ws/p2p/12D3KooW...">
+            <button onclick="connectToPeer()" id="connect-btn" disabled>🔗 Подключиться</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>💬 Netcat Stream</h2>
+        <div id="netcat-status" class="status stopped">Не подключено</div>
+        
+        <div class="form-group">
+            <label>Remote Peer ID:</label>
+            <input type="text" id="netcat-peer-id" placeholder="12D3KooW...">
+            <button onclick="dialNetcat()" id="netcat-dial-btn" disabled>📞 Соединиться</button>
+            <button onclick="closeNetcat()" id="netcat-close-btn" disabled>❌ Закрыть</button>
+        </div>
+        
+        <div class="form-group">
+            <label>Сообщение для отправки:</label>
+            <input type="text" id="netcat-send-input" placeholder="Введите сообщение...">
+            <button onclick="sendNetcat()" id="netcat-send-btn" disabled>📤 Отправить</button>
+        </div>
+        
+        <div class="form-group">
+            <label>Полученные сообщения:</label>
+            <textarea id="netcat-incoming" readonly placeholder="Здесь будут появляться входящие сообщения..."></textarea>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📡 PubSub</h2>
+        
+        <div class="form-group">
+            <label>Тема:</label>
+            <input type="text" id="pubsub-topic" placeholder="chat">
+            <button onclick="subscribeTopic()" id="pubsub-subscribe-btn" disabled>📧 Подписаться</button>
+            <button onclick="unsubscribeTopic()" id="pubsub-unsubscribe-btn" disabled>🚫 Отписаться</button>
+        </div>
+        
+        <div class="form-group">
+            <label>Сообщение:</label>
+            <input type="text" id="pubsub-message" placeholder="Введите сообщение...">
+            <button onclick="publishTopic()" id="pubsub-publish-btn" disabled>📢 Опубликовать</button>
+        </div>
+        
+        <div class="form-group">
+            <label>Сообщения темы:</label>
+            <textarea id="pubsub-messages" readonly placeholder="Сообщения из подписанных тем..."></textarea>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📋 Лог</h2>
+        <div id="log" class="log">Лог событий будет появляться здесь...</div>
+    </div>
+
+    <script type="module">
+        // Импорт библиотеки (для разработки - в реальном проекте будет из npm)
+        // import { BrowserP2pNetcat } from './src/browser/index.js';
+        
+        // Для демо используем встроенную версию
+        window.BrowserP2pNetcat = class {
+            constructor() {
+                this.node = null;
+                this.activeSession = null;
+                this.subscriptions = new Map();
+            }
+
+            async start() {
+                // Заглушка для демо - в реальной библиотеке будет работать
+                log("Запуск узла...");
+                this.node = { 
+                    peerId: { toString: () => "12D3KooWDemoPeerIdForBrowser" },
+                    getMultiaddrs: () => [{ toString: () => "/ip4/127.0.0.1/tcp/4001/ws" }],
+                    services: { pubsub: { subscribe: () => {}, unsubscribe: () => {} } }
+                };
+                log("Узел запущен: " + this.node.peerId.toString());
+                updateUI();
+            }
+
+            async stop() {
+                if (this.node) {
+                    log("Остановка узла...");
+                    this.node = null;
+                    this.activeSession = null;
+                    updateUI();
+                }
+            }
+
+            getPeerId() {
+                return this.node ? this.node.peerId.toString() : "не запущен";
+            }
+
+            getListenAddresses() {
+                return this.node ? this.node.getMultiaddrs().map(m => m.toString()) : [];
+            }
+
+            async connect(address) {
+                log(`Подключение к ${address}...`);
+                log(`Подключено к ${address}`);
+            }
+
+            handleIncoming(onSession) {
+                log("Ожидание входящих netcat соединений...");
+            }
+
+            async dialNetcat(remotePeerId) {
+                log(`Установка netcat соединения с ${remotePeerId}...`);
+                this.activeSession = {
+                    stream: { send: () => true, onDrain: () => Promise.resolve(), close: () => Promise.resolve() },
+                    peerId: remotePeerId
+                };
+                log(`Netcat соединено с ${remotePeerId}`);
+                updateUI();
+                return this.activeSession;
+            }
+
+            async sendNetcat(data) {
+                if (!this.activeSession) throw new Error("Нет активной сессии");
+                log(`Отправка: ${data}`);
+            }
+
+            async *readNetcat() {
+                // Заглушка
+            }
+
+            async subscribe(topic, onMessage) {
+                log(`Подписка на тему: ${topic}`);
+                this.subscriptions.set(topic, onMessage);
+                return () => {
+                    this.subscriptions.delete(topic);
+                    log(`Отписка от темы: ${topic}`);
+                };
+            }
+
+            async publish(topic, data) {
+                log(`Публикация в ${topic}: ${data}`);
+            }
+
+            isStarted() {
+                return this.node !== null;
+            }
+
+            getActiveSession() {
+                return this.activeSession;
+            }
+
+            async closeSession() {
+                if (this.activeSession) {
+                    log("Закрытие сессии");
+                    this.activeSession = null;
+                    updateUI();
+                }
+            }
+        };
+
+        let p2p = new window.BrowserP2pNetcat();
+
+        // Глобальные функции для onclick
+        window.startNode = async () => {
+            try {
+                await p2p.start();
+                document.getElementById('peer-id').textContent = p2p.getPeerId();
+                document.getElementById('listen-addrs').textContent = p2p.getListenAddresses().join('\n') || '-';
+                document.getElementById('node-status').className = 'status started';
+                document.getElementById('node-status').textContent = 'Узел запущен';
+            } catch (err) {
+                log(`Ошибка запуска: ${err.message}`);
+            }
+        };
+
+        window.stopNode = async () => {
+            try {
+                await p2p.stop();
+                document.getElementById('peer-id').textContent = 'не запущен';
+                document.getElementById('listen-addrs').textContent = '-';
+                document.getElementById('node-status').className = 'status stopped';
+                document.getElementById('node-status').textContent = 'Узел не запущен';
+                document.getElementById('netcat-status').className = 'status stopped';
+                document.getElementById('netcat-status').textContent = 'Не подключено';
+            } catch (err) {
+                log(`Ошибка остановки: ${err.message}`);
+            }
+        };
+
+        window.connectToPeer = async () => {
+            const addr = document.getElementById('connect-addr').value.trim();
+            if (!addr) return;
+            
+            try {
+                await p2p.connect(addr);
+            } catch (err) {
+                log(`Ошибка подключения: ${err.message}`);
+            }
+        };
+
+        window.dialNetcat = async () => {
+            const peerId = document.getElementById('netcat-peer-id').value.trim();
+            if (!peerId) return;
+            
+            try {
+                await p2p.dialNetcat(peerId);
+                document.getElementById('netcat-status').className = 'status connected';
+                document.getElementById('netcat-status').textContent = `Подключено: ${peerId}`;
+                
+                // Обработка входящих сообщений (заглушка)
+                setInterval(() => {
+                    if (Math.random() < 0.1) { // Случайные сообщения для демо
+                        const textarea = document.getElementById('netcat-incoming');
+                        textarea.value += `[${new Date().toLocaleTimeString()}] Demo message\n`;
+                        textarea.scrollTop = textarea.scrollHeight;
+                    }
+                }, 5000);
+            } catch (err) {
+                log(`Ошибка netcat: ${err.message}`);
+            }
+        };
+
+        window.closeNetcat = async () => {
+            try {
+                await p2p.closeSession();
+                document.getElementById('netcat-status').className = 'status stopped';
+                document.getElementById('netcat-status').textContent = 'Не подключено';
+            } catch (err) {
+                log(`Ошибка закрытия: ${err.message}`);
+            }
+        };
+
+        window.sendNetcat = async () => {
+            const input = document.getElementById('netcat-send-input');
+            const text = input.value.trim();
+            if (!text) return;
+            
+            try {
+                await p2p.sendNetcat(text);
+                input.value = '';
+            } catch (err) {
+                log(`Ошибка отправки: ${err.message}`);
+            }
+        };
+
+        window.subscribeTopic = async () => {
+            const topic = document.getElementById('pubsub-topic').value.trim();
+            if (!topic) return;
+            
+            try {
+                await p2p.subscribe(topic, (msg) => {
+                    const textarea = document.getElementById('pubsub-messages');
+                    textarea.value += `[${new Date().toLocaleTimeString()}] ${msg.topic}: ${new TextDecoder().decode(msg.data)}\n`;
+                    textarea.scrollTop = textarea.scrollHeight;
+                });
+            } catch (err) {
+                log(`Ошибка подписки: ${err.message}`);
+            }
+        };
+
+        window.unsubscribeTopic = async () => {
+            const topic = document.getElementById('pubsub-topic').value.trim();
+            if (!topic) return;
+            
+            // В реальной библиотеке здесь будет вызов unsubscribe
+            log(`Отписка от темы: ${topic}`);
+        };
+
+        window.publishTopic = async () => {
+            const topic = document.getElementById('pubsub-topic').value.trim();
+            const message = document.getElementById('pubsub-message').value.trim();
+            if (!topic || !message) return;
+            
+            try {
+                await p2p.publish(topic, message);
+                document.getElementById('pubsub-message').value = '';
+            } catch (err) {
+                log(`Ошибка публикации: ${err.message}`);
+            }
+        };
+
+        function updateUI() {
+            const started = p2p.isStarted();
+            const hasSession = p2p.getActiveSession() !== null;
+            
+            document.getElementById('start-btn').disabled = started;
+            document.getElementById('stop-btn').disabled = !started;
+            document.getElementById('connect-btn').disabled = !started;
+            document.getElementById('netcat-dial-btn').disabled = !started;
+            document.getElementById('netcat-close-btn').disabled = !hasSession;
+            document.getElementById('netcat-send-btn').disabled = !hasSession;
+            document.getElementById('pubsub-subscribe-btn').disabled = !started;
+            document.getElementById('pubsub-publish-btn').disabled = !started;
+        }
+
+        function log(message) {
+            const logEl = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.textContent += `[${timestamp}] ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        // Инициализация
+        updateUI();
+        log("Демо страница P2P Netcat загружена");
+    </script>
+</body>
+</html>

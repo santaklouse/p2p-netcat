@@ -1,0 +1,78 @@
+{
+  "name": "p2p-netcat",
+  "version": "1.0.0",
+  "description": "Децентрализованный netcat на базе libp2p/IPFS - для Node.js и браузера",
+  "type": "module",
+  "main": "dist/index.js",
+  "browser": "dist/browser/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "import": "./dist/browser/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "p2p",
+    "netcat",
+    "libp2p",
+    "ipfs",
+    "peer-to-peer",
+    "browser",
+    "nodejs",
+    "networking",
+    "pubsub"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/p2p-netcat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/p2p-netcat/issues"
+  },
+  "homepage": "https://github.com/yourusername/p2p-netcat#readme",
+  "scripts": {
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "build:browser": "tsc -p tsconfig.browser.json",
+    "build:all": "npm run build && npm run build:browser",
+    "dev": "tsx watch src/index.ts",
+    "dev:browser": "tsc -p tsconfig.browser.json --watch",
+    "demo": "open demo.html",
+    "smoke:netcat": "bash scripts/smoke-netcat.sh",
+    "smoke:pubsub": "bash scripts/smoke-pubsub.sh",
+    "smoke": "npm run smoke:netcat && npm run smoke:pubsub",
+    "prepublishOnly": "npm run build:all"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-noise": "^17.0.0",
+    "@libp2p/floodsub": "^11.0.16",
+    "@libp2p/identify": "^4.1.0",
+    "@libp2p/interface": "^3.2.0",
+    "@libp2p/mdns": "^12.0.16",
+    "@libp2p/mplex": "^12.0.16",
+    "@libp2p/tcp": "^11.0.15",
+    "@libp2p/websockets": "^10.1.8",
+    "@multiformats/multiaddr": "^13.0.1",
+    "@libp2p/peer-id": "^6.0.6",
+    "libp2p": "^3.2.0",
+    "uint8arraylist": "^2.4.8",
+    "uint8arrays": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.0.0"
+  }
+}

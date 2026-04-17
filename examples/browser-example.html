@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Netcat Browser Example</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #1565c0; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        input, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px 0;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .log {
+            background: #263238;
+            color: #aed581;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            border-radius: 4px;
+            height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌐 P2P Netcat Browser Example</h1>
+    
+    <div class="container">
+        <h2>Управление узлом</h2>
+        <button id="start-btn" onclick="startNode()">🚀 Запустить узел</button>
+        <button id="stop-btn" onclick="stopNode()" disabled>🛑 Остановить узел</button>
+        
+        <div class="info">
+            <strong>Peer ID:</strong> <span id="peer-id">не запущен</span><br>
+            <strong>Listen Addresses:</strong> <span id="listen-addrs">-</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>💬 P2P Chat</h2>
+        <input type="text" id="chat-topic" placeholder="Тема (например: chat)" value="chat">
+        <button id="subscribe-btn" onclick="subscribeChat()" disabled>📧 Подписаться</button>
+        
+        <input type="text" id="chat-message" placeholder="Введите сообщение...">
+        <button id="send-btn" onclick="sendMessage()" disabled>📤 Отправить</button>
+        
+        <div class="info">
+            <strong>Сообщения:</strong>
+            <div id="messages" style="height: 200px; overflow-y: auto; background: white; padding: 10px; border: 1px solid #ddd; margin-top: 5px;">
+                Сообщения будут появляться здесь...
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📋 Лог</h2>
+        <div id="log" class="log">Лог событий будет появляться здесь...</div>
+    </div>
+
+    <!-- Для разработки используем локальную сборку, для продакшена - CDN -->
+    <script type="module">
+        // Раскомментируйте для продакшена:
+        // import { BrowserP2pNetcat } from 'https://cdn.skypack.dev/p2p-netcat/browser'
+        
+        // Для разработки:
+        import { BrowserP2pNetcat } from '../src/browser/index.js'
+        
+        let p2p = null;
+        let unsubscribe = null;
+
+        window.startNode = async () => {
+            try {
+                log('Запуск P2P узла...');
+                p2p = new BrowserP2pNetcat({
+                    listen: ['/ip4/0.0.0.0/tcp/0/ws'],
+                    // Можно добавить bootstrap пиры:
+                    // bootstrap: ['/ip4/127.0.0.1/tcp/4001/ws/p2p/12D3KooW...']
+                });
+                
+                await p2p.start();
+                
+                const peerId = p2p.getPeerId();
+                const addrs = p2p.getListenAddresses();
+                
+                document.getElementById('peer-id').textContent = peerId;
+                document.getElementById('listen-addrs').textContent = addrs.join('\n') || '-';
+                
+                log(`✅ Узел запущен: ${peerId}`);
+                log(`📍 Слушает адреса: ${addrs.join(', ')}`);
+                
+                updateUI();
+            } catch (err) {
+                log(`❌ Ошибка запуска: ${err.message}`);
+            }
+        };
+
+        window.stopNode = async () => {
+            try {
+                if (unsubscribe) {
+                    unsubscribe();
+                    unsubscribe = null;
+                }
+                
+                if (p2p) {
+                    log('Остановка P2P узла...');
+                    await p2p.stop();
+                    p2p = null;
+                }
+                
+                document.getElementById('peer-id').textContent = 'не запущен';
+                document.getElementById('listen-addrs').textContent = '-';
+                
+                log('✅ Узел остановлен');
+                updateUI();
+            } catch (err) {
+                log(`❌ Ошибка остановки: ${err.message}`);
+            }
+        };
+
+        window.subscribeChat = async () => {
+            if (!p2p) return;
+            
+            try {
+                const topic = document.getElementById('chat-topic').value.trim() || 'chat';
+                log(`📧 Подписка на тему: ${topic}`);
+                
+                unsubscribe = await p2p.subscribe(topic, (msg) => {
+                    const text = new TextDecoder().decode(msg.data);
+                    const timestamp = new Date().toLocaleTimeString();
+                    const from = msg.from || 'unknown';
+                    
+                    addMessage(`[${timestamp}] ${from}: ${text}`);
+                    log(`📨 Получено сообщение в теме ${topic}: ${text}`);
+                });
+                
+                log(`✅ Подписка на тему "${topic}" оформлена`);
+                updateUI();
+            } catch (err) {
+                log(`❌ Ошибка подписки: ${err.message}`);
+            }
+        };
+
+        window.sendMessage = async () => {
+            if (!p2p) return;
+            
+            const topic = document.getElementById('chat-topic').value.trim() || 'chat';
+            const message = document.getElementById('chat-message').value.trim();
+            
+            if (!message) return;
+            
+            try {
+                await p2p.publish(topic, message);
+                
+                const timestamp = new Date().toLocaleTimeString();
+                addMessage(`[${timestamp}] Я: ${message}`);
+                
+                document.getElementById('chat-message').value = '';
+                log(`📤 Сообщение отправлено в тему "${topic}": ${message}`);
+            } catch (err) {
+                log(`❌ Ошибка отправки: ${err.message}`);
+            }
+        };
+
+        function addMessage(text) {
+            const messages = document.getElementById('messages');
+            messages.innerHTML += text + '\n';
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function log(text) {
+            const logEl = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.textContent += `[${timestamp}] ${text}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function updateUI() {
+            const started = p2p && p2p.isStarted();
+            const subscribed = unsubscribe !== null;
+            
+            document.getElementById('start-btn').disabled = started;
+            document.getElementById('stop-btn').disabled = !started;
+            document.getElementById('subscribe-btn').disabled = !started || subscribed;
+            document.getElementById('send-btn').disabled = !started || !subscribed;
+        }
+
+        // Инициализация
+        updateUI();
+        log('🚀 P2P Netcat Browser Example загружен');
+        log('💡 Нажмите "Запустить узел" для начала работы');
+    </script>
+</body>
+</html>
