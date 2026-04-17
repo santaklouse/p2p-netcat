@@ -313,7 +313,10 @@ export function uint8ArrayToString(data: Uint8Array): string {
   try {
     return new TextDecoder().decode(data)
   } catch {
-    return Buffer.from(data).toString('hex')
+    // Browser-compatible hex conversion
+    return Array.from(data)
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('')
   }
 }
 
