@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist/browser",
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": [
+    "src/browser/**/*",
+    "src/netcat-protocol.ts",
+    "src/runtime-polyfills.ts"
+  ],
+  "exclude": [
+    "src/index.ts",
+    "src/libp2p-node.ts",
+    "src/netcat.ts",
+    "src/pubsub-manager.ts",
+    "node_modules",
+    "dist"
+  ]
+}
