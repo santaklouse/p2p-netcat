@@ -10,6 +10,7 @@ export type BrowserTerminalHandle = {
 };
 
 type BrowserTerminalProps = {
+  ariaLabel: string;
   connected: boolean;
   onExit: () => void;
   onInput: (bytes: Uint8Array) => void;
@@ -17,6 +18,7 @@ type BrowserTerminalProps = {
 };
 
 export const BrowserTerminal = forwardRef<BrowserTerminalHandle, BrowserTerminalProps>(function BrowserTerminal({
+  ariaLabel,
   connected,
   onExit,
   onInput,
@@ -129,7 +131,7 @@ export const BrowserTerminal = forwardRef<BrowserTerminalHandle, BrowserTerminal
       className="browser-terminal"
       ref={containerRef}
       role="application"
-      aria-label="Интерактивный терминал удалённого PTY"
+      aria-label={ariaLabel}
     />
   );
 });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
-test("собирается как статическая PWA без серверного бандла", async () => {
+test("builds as a static PWA without a server bundle", async () => {
   const [html, manifest, files, networkConfig] = await Promise.all([
     readFile(new URL("../dist/index.html", import.meta.url), "utf8"),
     readFile(new URL("../dist/manifest.webmanifest", import.meta.url), "utf8"),
@@ -17,13 +17,14 @@ test("собирается как статическая PWA без сервер
   assert.deepEqual(JSON.parse(networkConfig).delegatedRouting, ["https://delegated-ipfs.dev/routing/v1"]);
   const parsedManifest = JSON.parse(manifest);
   assert.equal(parsedManifest.display, "standalone");
+  assert.equal(parsedManifest.lang, "en");
   assert.equal(parsedManifest.start_url, parsedManifest.scope);
   assert.ok(parsedManifest.icons.every((icon) => icon.src.startsWith(parsedManifest.scope)));
   await assert.rejects(access(new URL("../dist/server/", import.meta.url)));
 });
 
-test("сетевой стек работает в отдельном Web Worker", async () => {
-  const [worker, client, nativeWebRtc, legacyWebRtc, core, signaling, endpoint, page, terminal, main, styles] = await Promise.all([
+test("runs the network stack in a dedicated Web Worker", async () => {
+  const [worker, client, nativeWebRtc, legacyWebRtc, core, signaling, endpoint, page, localization, terminal, main, styles] = await Promise.all([
     readFile(new URL("../app/p2p.worker.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/p2p-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/native-webrtc-client.ts", import.meta.url), "utf8"),
@@ -32,6 +33,7 @@ test("сетевой стек работает в отдельном Web Worker"
     readFile(new URL("../../packages/core/src/signaling.js", import.meta.url), "utf8"),
     readFile(new URL("../../packages/core/src/native-endpoint.js", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/i18n.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/browser-terminal.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/main.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -87,17 +89,24 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.match(core, /WEBRTC_RECONNECT_GRACE_MS/);
   assert.match(nativeWebRtc, /WebRTC-канал восстановлен/);
   assert.match(page, /reconnecting/);
-  assert.match(page, /Необязательно · используется автопоиск/);
+  assert.match(localization, /Optional · automatic discovery is enabled/);
+  assert.match(localization, /Необязательно · используется автопоиск/);
+  assert.match(localization, /languageLink: "Русская версия"/);
+  assert.match(localization, /languageLink: "English version"/);
+  assert.match(localization, /get\("lang"\) === "ru"/);
+  assert.match(page, /getLanguageUrl\(alternateLanguage\)/);
   assert.doesNotMatch(page, /!targetPeerId \|\| !relayAddress/);
   assert.match(main, /location\.hostname\.endsWith\("\.github\.io"\)/);
   assert.match(main, /window\.location\.replace\(secureUrl\)/);
-  assert.match(page, /Показывать отправленное/);
+  assert.match(localization, /Show sent text/);
+  assert.match(localization, /Показывать отправленное/);
   assert.match(page, /entry\.direction === "received"/);
   assert.match(page, /p2p-netcat-show-sent/);
   assert.match(page, /npm install --global p2p-netcat@latest/);
   assert.match(page, /INSTALLATION\.RU\.md/);
   assert.match(page, /navigator\.clipboard\.writeText/);
-  assert.match(page, /Интерактивный PTY/);
+  assert.match(localization, /Interactive PTY/);
+  assert.match(localization, /Интерактивный PTY/);
   assert.match(page, /p2p-netcat-interactive/);
   assert.match(page, /lazy\(\(\) => import\("\.\/browser-terminal"\)\)/);
   assert.match(client, /PtyFrameDecoder/);

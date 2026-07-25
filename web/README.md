@@ -197,6 +197,13 @@ URL is:
 https://santaklouse.github.io/p2p-netcat/
 ```
 
+English is the default page language. The complete Russian interface is
+available through the permanent language link in the header or directly at:
+
+```text
+https://santaklouse.github.io/p2p-netcat/?lang=ru
+```
+
 GitHub Pages supplies HTTPS, allowing the Service Worker, PWA installation,
 Delegated Routing, WebRTC, and secure WSS/WebTransport routes to work.
 

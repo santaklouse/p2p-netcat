@@ -225,7 +225,9 @@ npm run build
 
 Для GitHub Pages добавлен готовый workflow `.github/workflows/pages.yml`. В
 настройках репозитория достаточно выбрать **Settings → Pages → Source → GitHub
-Actions**; workflow сам учтёт подпуть репозитория при сборке Vite.
+Actions**; workflow сам учтёт подпуть репозитория при сборке Vite. По умолчанию
+публикуется английская страница со ссылкой на полный русский интерфейс по адресу
+`?lang=ru`.
 
 По умолчанию relay-адрес в браузере не требуется. Клиент параллельно запускает
 native WebRTC signaling через подписанные Nostr events и публичные WebTorrent

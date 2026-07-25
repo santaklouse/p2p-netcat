@@ -196,6 +196,13 @@ npm run dev
 https://santaklouse.github.io/p2p-netcat/
 ```
 
+По умолчанию открывается английская версия. Полный русский интерфейс доступен
+по постоянной ссылке в шапке страницы или напрямую:
+
+```text
+https://santaklouse.github.io/p2p-netcat/?lang=ru
+```
+
 GitHub Pages предоставляет HTTPS, поэтому Service Worker, установка PWA,
 Delegated Routing, WebRTC и защищённые WSS/WebTransport-маршруты будут работать.
 

@@ -227,7 +227,8 @@ for Service Workers and PWA installation.
 A ready-to-use `.github/workflows/pages.yml` workflow is included for GitHub
 Pages. In the repository settings, select **Settings → Pages → Source → GitHub
 Actions**. The workflow automatically uses the repository subpath as Vite's
-base URL.
+base URL. The deployed page is English by default and links to the complete
+Russian interface at `?lang=ru`.
 
 The browser does not require a relay address by default. It starts native
 WebRTC signaling through signed Nostr events and public WebTorrent trackers in

@@ -1,5 +1,6 @@
 import { FormEvent, Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { BrowserTerminalHandle } from "./browser-terminal";
+import { getLanguageUrl, getPageLanguage, uiText } from "./i18n";
 import { BrowserP2PClient } from "./p2p-client";
 
 const BrowserTerminal = lazy(() => import("./browser-terminal"));
@@ -11,23 +12,16 @@ type ConnectionState = "idle" | "starting" | "connecting" | "connected" | "recon
 type LogEntry = { id: number; time: string; message: string; kind: "info" | "success" | "error" };
 type TerminalEntry = { id: number; direction: "sent" | "received"; text: string };
 
-const stateLabels: Record<ConnectionState, string> = {
-  idle: "Готов",
-  starting: "Запуск узла",
-  connecting: "Соединение",
-  connected: "В сети",
-  reconnecting: "Переподключение",
-  closed: "Закрыто",
-  error: "Ошибка",
-};
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} Б`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} КБ`;
-  return `${(value / 1024 / 1024).toFixed(1)} МБ`;
+function formatBytes(value: number, units: readonly [string, string, string]) {
+  if (value < 1024) return `${value} ${units[0]}`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} ${units[1]}`;
+  return `${(value / 1024 / 1024).toFixed(1)} ${units[2]}`;
 }
 
 export default function Home() {
+  const [language] = useState(getPageLanguage);
+  const copy = uiText[language];
+  const alternateLanguage = language === "en" ? "ru" : "en";
   const [targetPeerId, setTargetPeerId] = useState("");
   const [relayAddress, setRelayAddress] = useState("");
   const [logicalPort, setLogicalPort] = useState(31337);
@@ -53,9 +47,16 @@ export default function Home() {
   const addLog = (text: string, kind: "info" | "success" | "error" = "info") => {
     setLogs((current) => [
       ...current.slice(-99),
-      { id: Date.now() + Math.random(), time: new Date().toLocaleTimeString("ru-RU"), message: text, kind },
+      { id: Date.now() + Math.random(), time: new Date().toLocaleTimeString(copy.locale), message: text, kind },
     ]);
   };
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.title = copy.documentTitle;
+    document.querySelector('meta[name="description"]')?.setAttribute("content", copy.documentDescription);
+    document.querySelector('meta[property="og:description"]')?.setAttribute("content", copy.documentDescription);
+  }, [copy.documentDescription, copy.documentTitle, language]);
 
   useEffect(() => {
     const savedRelay = window.localStorage.getItem("p2p-netcat-relay");
@@ -117,7 +118,7 @@ export default function Home() {
       window.localStorage.setItem("p2p-netcat-interactive", String(interactive));
       await client.connect(targetPeerId, logicalPort, relayAddress, interactive, timeout);
       setConnectionState("connected");
-      if (interactive) addLog("PTY-протокол включён; ввод передаётся напрямую с клавиатуры", "success");
+      if (interactive) addLog(copy.ptyEnabled, "success");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       addLog(text, "error");
@@ -131,13 +132,13 @@ export default function Home() {
     await clientRef.current?.stop();
     clientRef.current = null;
     setConnectionState("closed");
-    addLog("Соединение закрыто");
+    addLog(copy.connectionClosed);
   };
 
   const exitInteractive = async () => {
     try {
       await clientRef.current?.closeWrite();
-      addLog("PTY EOF отправлен; ожидаем завершение удалённой оболочки");
+      addLog(copy.ptyEofSent);
     } catch (error) {
       addLog(error instanceof Error ? error.message : String(error), "error");
       await disconnect();
@@ -175,14 +176,16 @@ export default function Home() {
 
   const sendFile = async (file: File | undefined) => {
     if (!file || connectionState !== "connected") return;
-    setFileProgress(`Отправка ${file.name}: 0 / ${formatBytes(file.size)}`);
+    setFileProgress(`${copy.sendingFile} ${file.name}: 0 / ${formatBytes(file.size, copy.byteUnits)}`);
     try {
       await clientRef.current?.sendFile(file, (sent, total) => {
-        setFileProgress(`Отправка ${file.name}: ${formatBytes(sent)} / ${formatBytes(total)}`);
+        setFileProgress(
+          `${copy.sendingFile} ${file.name}: ${formatBytes(sent, copy.byteUnits)} / ${formatBytes(total, copy.byteUnits)}`,
+        );
       });
       setSentBytes((value) => value + file.size);
-      setFileProgress(`${file.name} отправлен · ${formatBytes(file.size)}`);
-      addLog(`Файл ${file.name} отправлен`, "success");
+      setFileProgress(`${file.name} ${copy.fileSentSuffix} · ${formatBytes(file.size, copy.byteUnits)}`);
+      addLog(`${copy.fileSentPrefix} ${file.name} ${copy.fileSentSuffix}`, "success");
     } catch (error) {
       setFileProgress("");
       addLog(error instanceof Error ? error.message : String(error), "error");
@@ -206,7 +209,7 @@ export default function Home() {
       window.setTimeout(() => setInstallCopied(false), 2_000);
     } catch (error) {
       addLog(
-        `Не удалось скопировать команду: ${error instanceof Error ? error.message : String(error)}`,
+        `${copy.copyFailed}: ${error instanceof Error ? error.message : String(error)}`,
         "error",
       );
     }
@@ -221,25 +224,33 @@ export default function Home() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="p2p netcat — начало страницы">
+        <a className="brand" href="#top" aria-label={copy.brandAria}>
           <span className="brand-mark" aria-hidden="true">p2p</span>
           <span>netcat<span className="brand-cursor">_</span></span>
         </a>
-        <div className={`connection-pill state-${connectionState}`}>
-          <span className="status-dot" aria-hidden="true" />
-          {stateLabels[connectionState]}
+        <div className="topbar-actions">
+          <a
+            className="language-link"
+            href={getLanguageUrl(alternateLanguage)}
+            hrefLang={alternateLanguage}
+            lang={alternateLanguage}
+            aria-label={copy.languageLinkAria}
+          >
+            {copy.languageLink}
+          </a>
+          <div className={`connection-pill state-${connectionState}`}>
+            <span className="status-dot" aria-hidden="true" />
+            {copy.stateLabels[connectionState]}
+          </div>
         </div>
       </header>
 
       <section className="hero" id="top">
         <div>
-          <p className="eyebrow">Зашифрованный поток · без IP-адреса сервера</p>
-          <h1>Терминал между двумя узлами.<br /><span>Прямо из браузера.</span></h1>
+          <p className="eyebrow">{copy.eyebrow}</p>
+          <h1>{copy.heroLineOne}<br /><span>{copy.heroLineTwo}</span></h1>
         </div>
-        <p className="hero-copy">
-          Введите PeerId — клиент сам найдёт браузерный маршрут через IPFS.
-          Circuit Relay можно указать вручную только как резервный маршрут.
-        </p>
+        <p className="hero-copy">{copy.heroCopy}</p>
       </section>
 
       <section className="install-strip" aria-labelledby="install-title">
@@ -247,35 +258,45 @@ export default function Home() {
           <span className="step-number">CLI</span>
           <div>
             <p>Node.js 22+</p>
-            <h2 id="install-title">Установить консольную утилиту</h2>
+            <h2 id="install-title">{copy.installTitle}</h2>
           </div>
         </div>
         <div className="install-command">
           <code>{INSTALL_COMMAND}</code>
           <button type="button" onClick={() => void copyInstallCommand()}>
-            {installCopied ? "Скопировано" : "Копировать"}
+            {installCopied ? copy.copied : copy.copy}
           </button>
         </div>
-        <nav className="install-links" aria-label="Документация по установке">
-          <a href={INSTALLATION_RU_URL} target="_blank" rel="noreferrer">
-            Инструкция по установке ↗
+        <nav className="install-links" aria-label={copy.installationNavAria}>
+          <a
+            href={language === "en" ? INSTALLATION_EN_URL : INSTALLATION_RU_URL}
+            hrefLang={language}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {copy.installationGuide}
           </a>
-          <a href={INSTALLATION_EN_URL} target="_blank" rel="noreferrer">
-            English ↗
+          <a
+            href={language === "en" ? INSTALLATION_RU_URL : INSTALLATION_EN_URL}
+            hrefLang={alternateLanguage}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {copy.alternateInstallationGuide}
           </a>
         </nav>
       </section>
 
-      <section className="workspace" aria-label="P2P-клиент">
+      <section className="workspace" aria-label={copy.workspaceAria}>
         <aside className="connection-panel">
           <div className="panel-heading">
             <span className="step-number">01</span>
-            <div><p>Маршрут</p><h2>Новое соединение</h2></div>
+            <div><p>{copy.route}</p><h2>{copy.newConnection}</h2></div>
           </div>
 
           <form onSubmit={connect} className="connection-form">
             <label>
-              <span>PeerId сервера</span>
+              <span>{copy.serverPeerId}</span>
               <input
                 value={targetPeerId}
                 onChange={(event) => setTargetPeerId(event.target.value)}
@@ -285,13 +306,15 @@ export default function Home() {
                 disabled={sessionActive}
                 aria-describedby="peer-help"
               />
-              <small id="peer-help">Значение печатает команда <code>p2p-nc -l</code></small>
+              <small id="peer-help">
+                {copy.peerHelp} <code>p2p-nc -l</code>
+              </small>
             </label>
 
             <details className="relay-options">
               <summary>
-                <span>Дополнительный relay</span>
-                <small>{relayAddress ? "Маршрут задан вручную" : "Необязательно · используется автопоиск"}</small>
+                <span>{copy.additionalRelay}</span>
+                <small>{relayAddress ? copy.manualRoute : copy.automaticDiscovery}</small>
               </summary>
               <label>
                 <span>WebSocket relay multiaddr</span>
@@ -301,15 +324,17 @@ export default function Home() {
                   spellCheck={false}
                   autoComplete="off"
                   disabled={sessionActive}
-                  placeholder="Оставьте пустым для автоматического поиска"
+                  placeholder={copy.relayPlaceholder}
                   aria-describedby="relay-help"
                 />
-                <small id="relay-help">Если автопоиск не сработал: <code>/dns4/relay.example/tcp/443/wss/p2p/…</code></small>
+                <small id="relay-help">
+                  {copy.relayHelp} <code>/dns4/relay.example/tcp/443/wss/p2p/…</code>
+                </small>
               </label>
             </details>
 
             <label className="port-field">
-              <span>Логический порт</span>
+              <span>{copy.logicalPort}</span>
               <input
                 type="number"
                 min="1"
@@ -322,7 +347,7 @@ export default function Home() {
             </label>
 
             <label className="timeout-field">
-              <span>Таймаут подключения (поиск узла)</span>
+              <span>{copy.timeout}</span>
               <input
                   type="number"
                   min="5"
@@ -342,28 +367,30 @@ export default function Home() {
                 disabled={connectionState === "starting" || connectionState === "connecting" || sessionActive}
               />
               <span>
-                Интерактивный PTY <code>-i</code>
-                <small>Включите, если сервер запущен командой <code>p2p-nc -l -i</code></small>
+                {copy.interactivePty} <code>-i</code>
+                <small>
+                  {copy.interactiveHelp} <code>p2p-nc -l -i</code>
+                </small>
               </span>
             </label>
 
             {!sessionActive ? (
               <button className="primary-button" type="submit" disabled={!targetPeerId || connectionState === "starting" || connectionState === "connecting"}>
-                <span>Подключиться</span><span aria-hidden="true">↗</span>
+                <span>{copy.connect}</span><span aria-hidden="true">↗</span>
               </button>
             ) : (
-              <button className="secondary-button danger" type="button" onClick={disconnect}>Отключиться</button>
+              <button className="secondary-button danger" type="button" onClick={disconnect}>{copy.disconnect}</button>
             )}
           </form>
 
           <div className="identity-card">
-            <span>Браузерный PeerId</span>
-            <code>{localPeerId || "Будет создан при подключении"}</code>
+            <span>{copy.browserPeerId}</span>
+            <code>{localPeerId || copy.peerIdOnConnect}</code>
           </div>
 
           <div className="security-note">
             <span className="lock-icon" aria-hidden="true">◆</span>
-            <p><strong>Сквозное шифрование</strong>Службы поиска видят запрос PeerId, но содержимое канала защищено Noise.</p>
+            <p><strong>{copy.endToEndEncryption}</strong>{copy.securityNote}</p>
           </div>
         </aside>
 
@@ -372,7 +399,7 @@ export default function Home() {
             <div className="window-dots" aria-hidden="true"><i /><i /><i /></div>
             <span className="terminal-address">p2p://{targetPeerId ? `${targetPeerId}` : "not-connected"}:{logicalPort}</span>
             {interactive ? (
-              <span className="pty-mode-label">PTY · Ctrl-E Q — выход</span>
+              <span className="pty-mode-label">{copy.ptyExit}</span>
             ) : (
               <label className="terminal-echo-toggle">
                 <input
@@ -385,18 +412,20 @@ export default function Home() {
                   }}
                 />
                 <span className="toggle-track" aria-hidden="true"><span /></span>
-                <span>Показывать отправленное</span>
+                <span>{copy.showSentText}</span>
               </label>
             )}
             <div className="traffic-stats">
-              <span>↑ {formatBytes(sentBytes)}</span><span>↓ {formatBytes(receivedBytes)}</span>
+              <span>↑ {formatBytes(sentBytes, copy.byteUnits)}</span>
+              <span>↓ {formatBytes(receivedBytes, copy.byteUnits)}</span>
             </div>
           </div>
 
           {interactive ? (
-            <Suspense fallback={<div className="browser-terminal-loading">Загрузка PTY-терминала…</div>}>
+            <Suspense fallback={<div className="browser-terminal-loading">{copy.terminalLoading}</div>}>
               <BrowserTerminal
                 ref={browserTerminalRef}
+                ariaLabel={copy.terminalAria}
                 connected={connected}
                 onInput={sendTerminalInput}
                 onResize={resizeTerminal}
@@ -410,7 +439,7 @@ export default function Home() {
                   ? visibleTerminalEntries.map((entry) => (
                     <span key={entry.id} className={`terminal-${entry.direction}`}>{entry.text}</span>
                   ))
-                  : <span className="terminal-empty">Ожидание данных…{`\n`}После соединения вывод удалённого процесса появится здесь.</span>}
+                  : <span className="terminal-empty">{copy.terminalEmpty}</span>}
               </pre>
 
               <div className="composer">
@@ -424,11 +453,11 @@ export default function Home() {
                     }
                   }}
                   disabled={!connected}
-                  aria-label="Данные для отправки"
+                  aria-label={copy.sendDataAria}
                   rows={3}
                 />
                 <button type="button" className="send-button" disabled={!connected || !message} onClick={() => void sendMessage()}>
-                  Отправить <kbd>⌘↵</kbd>
+                  {copy.send} <kbd>⌘↵</kbd>
                 </button>
               </div>
             </>
@@ -438,21 +467,29 @@ export default function Home() {
             {!interactive && (
               <label className={`file-button ${!connected ? "disabled" : ""}`}>
                 <input type="file" disabled={!connected} onChange={(event) => void sendFile(event.target.files?.[0])} />
-                <span aria-hidden="true">＋</span> Отправить файл
+                <span aria-hidden="true">＋</span> {copy.sendFile}
               </label>
             )}
-            <button type="button" disabled={!connected} onClick={() => void clientRef.current?.closeWrite()}>Отправить EOF</button>
-            <button type="button" disabled={receivedBytes === 0} onClick={downloadReceived}>Скачать приём</button>
-            {interactive && <span className="pty-help">Кликните терминал и печатайте; Enter и управляющие клавиши передаются напрямую</span>}
+            <button type="button" disabled={!connected} onClick={() => void clientRef.current?.closeWrite()}>
+              {copy.sendEof}
+            </button>
+            <button type="button" disabled={receivedBytes === 0} onClick={downloadReceived}>
+              {copy.downloadReceived}
+            </button>
+            {interactive && <span className="pty-help">{copy.ptyHelp}</span>}
             {fileProgress && <span className="file-progress">{fileProgress}</span>}
           </div>
         </div>
       </section>
 
-      <section className="event-log" aria-label="Журнал соединения">
-        <div className="log-header"><span className="step-number">02</span><h2>Журнал событий</h2><button type="button" onClick={() => setLogs([])}>Очистить</button></div>
+      <section className="event-log" aria-label={copy.connectionLogAria}>
+        <div className="log-header">
+          <span className="step-number">02</span>
+          <h2>{copy.eventLog}</h2>
+          <button type="button" onClick={() => setLogs([])}>{copy.clear}</button>
+        </div>
         <div className="log-list">
-          {logs.length === 0 ? <p className="empty-log">Событий пока нет.</p> : logs.map((entry) => (
+          {logs.length === 0 ? <p className="empty-log">{copy.noEvents}</p> : logs.map((entry) => (
             <p key={entry.id} className={`log-${entry.kind}`}><time>{entry.time}</time><span>{entry.message}</span></p>
           ))}
         </div>
