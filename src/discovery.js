@@ -67,16 +67,22 @@ export async function resolveTarget (node, target, {
   const peerId = peerIdFromString(target)
 
   if (relays.length > 0) {
+    if (verbose) process.stderr.write(`[p2p-nc] libp2p: использую заданный Circuit Relay для ${peerId}\n`)
     return relayedTargetAddress(relays[0], peerId)
   }
 
   const startedAt = Date.now()
   let lastError
+  let lastVerboseAt = 0
+  if (verbose) process.stderr.write(`[p2p-nc] libp2p: ищу ${peerId} в peer store, IPFS DHT и PubSub discovery\n`)
 
   while (Date.now() - startedAt < timeoutMs) {
     signal?.throwIfAborted()
     const addresses = await knownAddresses(node, peerId)
-    if (addresses.length > 0) return peerId
+    if (addresses.length > 0) {
+      if (verbose) process.stderr.write(`[p2p-nc] libp2p: найдено адресов в peer store: ${addresses.length}\n`)
+      return peerId
+    }
 
     try {
       const remaining = Math.max(1, timeoutMs - (Date.now() - startedAt))
@@ -86,7 +92,10 @@ export async function resolveTarget (node, target, {
       ])
 
       try {
-        if (await findProviderRecord(node, peerId, providerSignal)) return peerId
+        if (await findProviderRecord(node, peerId, providerSignal)) {
+          if (verbose) process.stderr.write('[p2p-nc] libp2p: PeerId найден по provider record в IPFS DHT\n')
+          return peerId
+        }
       } catch (error) {
         lastError = error
       }
@@ -101,12 +110,17 @@ export async function resolveTarget (node, target, {
 
       if (info.multiaddrs.length > 0) {
         await node.peerStore.merge(peerId, { multiaddrs: info.multiaddrs })
+        if (verbose) process.stderr.write(`[p2p-nc] libp2p: DHT вернула адресов: ${info.multiaddrs.length}\n`)
         return peerId
       }
     } catch (error) {
       if (signal?.aborted) throw signal.reason
       lastError = error
-      if (verbose) process.stderr.write(`[p2p-nc] PeerId пока не найден, повтор поиска: ${error.message}\n`)
+      if (verbose && Date.now() - lastVerboseAt >= 5_000) {
+        lastVerboseAt = Date.now()
+        const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+        process.stderr.write(`[p2p-nc] libp2p: PeerId пока не найден, поиск продолжается (${elapsed} с): ${error.message}\n`)
+      }
     }
 
     await sleep(500, undefined, { signal })

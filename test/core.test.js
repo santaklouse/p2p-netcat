@@ -7,6 +7,7 @@ import { generateKeyPair, publicKeyFromProtobuf, publicKeyToProtobuf } from '@li
 import { peerIdFromPrivateKey, peerIdFromPublicKey } from '@libp2p/peer-id'
 import { createP2PNode, protectPubsubPeerDiscovery } from '../src/node.js'
 import { loadOrCreateIdentity } from '../src/identity.js'
+import { createTrysteroHub } from '../src/trystero.js'
 import { startRelay } from 'p2p-netcat/relay'
 import { protocolForService as protocolFromCliSubpath } from 'p2p-netcat/core'
 import {
@@ -111,6 +112,48 @@ test('Trystero challenge криптографически привязан к о
   assert.equal(peerIdFromPublicKey(publicKey).toString(), peerId)
   assert.equal(await publicKey.verify(payload, response.signature), true)
   assert.equal(await publicKey.verify(trysteroAuthPayload(peerId, 31338, challenge), response.signature), false)
+})
+
+test('Trystero hub сохраняет тот же поток при кратком переподключении peer', async () => {
+  let leaveCount = 0
+  const room = {
+    makeAction () {
+      return {
+        async send () {},
+        onMessage: null
+      }
+    },
+    async leave () {
+      leaveCount += 1
+    },
+    onPeerJoin: null,
+    onPeerLeave: null
+  }
+  const opened = []
+  const disconnected = []
+  const reconnected = []
+  const hub = createTrysteroHub(room, {
+    reconnectGraceMs: 1_000,
+    onStream: (stream, peerId) => opened.push({ stream, peerId }),
+    onPeerDisconnected: peerId => disconnected.push(peerId),
+    onPeerReconnected: peerId => reconnected.push(peerId)
+  })
+
+  room.onPeerJoin('remote-1')
+  const stream = opened[0].stream
+  room.onPeerLeave('remote-1')
+  assert.equal(stream.status, 'open')
+  assert.equal(stream.connectionStatus, 'reconnecting')
+  assert.deepEqual(disconnected, ['remote-1'])
+
+  room.onPeerJoin('remote-1')
+  assert.equal(stream.connectionStatus, 'connected')
+  assert.equal(opened.length, 1)
+  assert.deepEqual(reconnected, ['remote-1'])
+
+  await hub.close()
+  assert.equal(leaveCount, 1)
+  assert.equal(stream.status, 'closed')
 })
 
 test('два локальных узла передают двунаправленный бинарный поток', async () => {

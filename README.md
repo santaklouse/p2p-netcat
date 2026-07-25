@@ -31,10 +31,13 @@ Amino DHT, mDNS, and Circuit Relay v2.
 - Logical ports, allowing one PeerId to expose multiple services;
 - PeerId-only discovery through mDNS, signed GossipSub announcements, and the
   IPFS Amino DHT;
-- a direct Trystero/WebRTC fallback signalled through public WebTorrent trackers;
+- a direct Trystero/WebRTC fallback; Node.js races public Nostr relays and
+  WebTorrent trackers while the browser keeps the compatible WebTorrent path;
 - a shared nine-endpoint STUN pool for CLI and browser WebRTC NAT traversal;
 - bounded end-to-end flow control from `node-pty` through the transport and Web
   Worker to xterm;
+- automatic recovery of a temporarily lost WebRTC peer for 120 seconds without
+  terminating the existing PTY;
 - Circuit Relay v2 connections for nodes behind NAT;
 - A built-in relay mode;
 - gs-netcat-style TCP forwarding, SOCKS4/4a/5, quiet, Tor, and true PTY modes;
@@ -380,6 +383,13 @@ p2p-nc relay --help
 7. QUIC TLS 1.3, Noise, or a signed WebRTC challenge authenticates the PeerId.
 8. stdin/stdout or PTY frames are transferred with bounded backpressure. The
    browser acknowledges output only after xterm has rendered it.
+9. A transient WebRTC disconnect enters a 120-second reconnecting state. The
+   existing PTY and bounded output queue survive when the same peer returns.
+
+With `-v`, the CLI reports the active libp2p and WebRTC search branches, open
+Nostr relay/WebTorrent tracker counts, elapsed search time, candidate
+authentication, the selected signaling strategy, WebRTC/ICE state changes, and
+session recovery or grace-period expiry.
 
 The [architecture document](docs/ARCHITECTURE.md) describes every CLI and
 browser branch, timeout, cache, concurrent address race, and trust boundary in
@@ -398,8 +408,11 @@ QUIC streams, avoiding unnecessary HTTP request, header, and CONNECT semantics.
 - WebRTC improves direct connectivity, but symmetric NAT or blocked UDP may
   still require TURN or Circuit Relay; public trackers provide no SLA.
 - Trystero uses all trackers bundled with its current BitTorrent strategy and
-  automatically reconnects signaling sockets, but third-party infrastructure
-  cannot guarantee 100% availability.
+  Node.js also races a Nostr signaling strategy. Both automatically reconnect,
+  but third-party infrastructure cannot guarantee 100% availability.
+- A backgrounded page can resume the same PTY while its JavaScript context
+  remains alive. A browser that fully discards or reloads the page creates a
+  new ephemeral Trystero identity and therefore starts a new PTY session.
 - PubSub improves discovery only after a node reaches a compatible mesh member;
   it is not a global rendezvous service.
 - An IPFS HTTP gateway is not a relay and cannot carry this protocol.

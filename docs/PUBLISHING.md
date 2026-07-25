@@ -6,9 +6,9 @@ The repository produces three public, unscoped npm packages:
 
 | Package | Version | Contents |
 |---|---:|---|
-| `p2p-netcat-core` | `0.2.2` | Browser-safe protocol, discovery, route-planning, Trystero, and PTY primitives |
-| `p2p-netcat` | `3.0.3` | Node.js CLI plus `p2p-netcat/core` and `p2p-netcat/relay` entrypoints |
-| `p2p-netcat-web` | `0.3.2` | Prebuilt static PWA in the package `dist` directory |
+| `p2p-netcat-core` | `0.2.3` | Browser-safe protocol, discovery, route-planning, Trystero, and PTY primitives |
+| `p2p-netcat` | `3.0.4` | Node.js CLI plus `p2p-netcat/core` and `p2p-netcat/relay` entrypoints |
+| `p2p-netcat-web` | `0.3.3` | Prebuilt static PWA in the package `dist` directory |
 
 The GitHub source repository is
 [`santaklouse/p2p-netcat`](https://github.com/santaklouse/p2p-netcat).
@@ -63,7 +63,7 @@ npm publish ./web --access public
 
 The package `p2p-netcat` was completely unpublished on July 20, 2026. npm
 blocks reuse of the name for 24 hours, and an already-used `name@version` can
-never be reused. Version `3.0.3` is intentionally newer than the deleted
+never be reused. Version `3.0.4` is intentionally newer than the deleted
 releases.
 
 The web package publishes only its prebuilt `dist`, README files, license, and
@@ -83,9 +83,9 @@ Perform a clean installation in a temporary directory:
 ```bash
 release_test_dir="$(mktemp -d)"
 npm install --prefix "${release_test_dir}" \
-  p2p-netcat-core@0.2.2 \
-  p2p-netcat@3.0.3 \
-  p2p-netcat-web@0.3.2
+  p2p-netcat-core@0.2.3 \
+  p2p-netcat@3.0.4 \
+  p2p-netcat-web@0.3.3
 "${release_test_dir}/node_modules/.bin/p2p-nc" --version
 test -f "${release_test_dir}/node_modules/p2p-netcat-web/dist/index.html"
 ```
@@ -93,7 +93,7 @@ test -f "${release_test_dir}/node_modules/p2p-netcat-web/dist/index.html"
 Expected CLI output:
 
 ```text
-3.0.3
+3.0.4
 ```
 
 ## Future releases

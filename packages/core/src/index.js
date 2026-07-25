@@ -8,6 +8,7 @@ export const TRYSTERO_APP_ID = 'io.github.santaklouse.p2p-netcat.v1'
 export const TRYSTERO_AUTH_VERSION = 1
 export const PUBSUB_DISCOVERY_TOPIC = 'io.github.santaklouse.p2p-netcat.peer-discovery.v1'
 export const PUBSUB_DISCOVERY_INTERVAL_MS = 10_000
+export const TRYSTERO_RECONNECT_GRACE_MS = 120_000
 export const PTY_FRAME_DATA = 0
 export const PTY_FRAME_RESIZE = 1
 export const PTY_FRAME_HEADER_LENGTH = 5
@@ -231,6 +232,7 @@ export function decodeTrysteroAuthResponse (value) {
 export class TrysteroStream {
   status = 'open'
   writeStatus = 'writable'
+  connectionStatus = 'connected'
   #sendData
   #sendControl
   #onFinalize
@@ -239,6 +241,8 @@ export class TrysteroStream {
   #inFlightBytes = 0
   #flowWaiters = []
   #keepAliveTimer
+  #peerReconnectTimer
+  #peerWaiters = []
   #pending = Promise.resolve()
   #items = []
   #waiters = []
@@ -278,15 +282,21 @@ export class TrysteroStream {
     if (this.writeStatus !== 'writable') throw new Error('Trystero stream is not writable')
     const bytes = asBytes(chunk).slice()
     this.#pending = this.#pending.then(async () => {
-      await this.#waitForFlowWindow(bytes.byteLength)
-      if (this.writeStatus === 'closed') throw new Error('Trystero stream is not writable')
-      if (this.#flowEnabled) this.#inFlightBytes += bytes.byteLength
-      try {
-        await this.#sendData(bytes)
-      } catch (error) {
-        if (this.#flowEnabled) this.#inFlightBytes -= bytes.byteLength
-        this.#wakeFlowWaiters()
-        throw error
+      for (;;) {
+        await this.#waitForPeer()
+        await this.#waitForFlowWindow(bytes.byteLength)
+        await this.#waitForPeer()
+        if (this.writeStatus === 'closed') throw new Error('Trystero stream is not writable')
+        if (this.#flowEnabled) this.#inFlightBytes += bytes.byteLength
+        try {
+          await this.#sendData(bytes)
+          return
+        } catch (error) {
+          if (this.#flowEnabled) this.#inFlightBytes -= bytes.byteLength
+          this.#wakeFlowWaiters()
+          if (this.status !== 'open' || this.writeStatus === 'closed') throw error
+          this.peerDisconnected()
+        }
       }
     })
     return false
@@ -335,6 +345,10 @@ export class TrysteroStream {
       this.#finalize()
     } else if (control === 'flow:1') {
       this.#flowEnabled = true
+    } else if (control === 'resume') {
+      this.#inFlightBytes = 0
+      this.#wakeFlowWaiters()
+      void this.#sendControlSafely('flow:1').catch(() => {})
     } else if (control.startsWith('ack:')) {
       const acknowledged = Number.parseInt(control.slice(4), 10)
       if (Number.isSafeInteger(acknowledged) && acknowledged > 0) {
@@ -346,12 +360,47 @@ export class TrysteroStream {
     }
   }
 
+  peerDisconnected (graceMs = TRYSTERO_RECONNECT_GRACE_MS) {
+    if (this.status === 'closed' || this.connectionStatus === 'reconnecting') return
+    if (!Number.isSafeInteger(graceMs) || graceMs < 0) {
+      throw new RangeError('graceMs must be a non-negative integer')
+    }
+    if (graceMs === 0) {
+      this.peerLeft()
+      return
+    }
+
+    this.connectionStatus = 'reconnecting'
+    clearTimeout(this.#peerReconnectTimer)
+    this.#peerReconnectTimer = setTimeout(() => this.peerLeft(), graceMs)
+    this.#peerReconnectTimer.unref?.()
+  }
+
+  peerReconnected () {
+    if (this.status === 'closed') return false
+    if (this.connectionStatus !== 'reconnecting') return true
+    clearTimeout(this.#peerReconnectTimer)
+    this.#peerReconnectTimer = undefined
+    this.connectionStatus = 'connected'
+    this.#inFlightBytes = 0
+    this.#wakeFlowWaiters()
+    this.#wakePeerWaiters()
+    void this.#sendControlSafely('resume').catch(() => {})
+    void this.#sendControlSafely('flow:1').catch(() => {})
+    return true
+  }
+
   peerLeft () {
     if (this.status === 'closed') return
+    const error = new Error('Remote Trystero peer left')
+    clearTimeout(this.#peerReconnectTimer)
+    this.#peerReconnectTimer = undefined
+    this.connectionStatus = 'disconnected'
     this.status = 'closed'
     this.writeStatus = 'closed'
     this.#endRead()
-    this.#wakeFlowWaiters(new Error('Remote Trystero peer left'))
+    this.#wakeFlowWaiters(error)
+    this.#wakePeerWaiters(error)
     this.#finalize()
   }
 
@@ -399,6 +448,24 @@ export class TrysteroStream {
     }
   }
 
+  async #waitForPeer () {
+    if (this.connectionStatus === 'connected') return
+    if (this.status !== 'open' || this.connectionStatus === 'disconnected') {
+      throw new Error('Trystero stream is not writable')
+    }
+    await new Promise((resolve, reject) => this.#peerWaiters.push({ resolve, reject }))
+    if (this.status !== 'open' || this.connectionStatus !== 'connected') {
+      throw new Error('Trystero stream is not writable')
+    }
+  }
+
+  #wakePeerWaiters (error) {
+    for (const waiter of this.#peerWaiters.splice(0)) {
+      if (error == null) waiter.resolve()
+      else waiter.reject(error)
+    }
+  }
+
   #wakeFlowWaiters (error) {
     for (const waiter of this.#flowWaiters.splice(0)) {
       if (error == null) waiter.resolve()
@@ -436,7 +503,9 @@ export class TrysteroStream {
     if (this.#finalized) return
     this.#finalized = true
     clearInterval(this.#keepAliveTimer)
+    clearTimeout(this.#peerReconnectTimer)
     this.#wakeFlowWaiters(new Error('Trystero stream is closed'))
+    this.#wakePeerWaiters(new Error('Trystero stream is closed'))
     this.#onFinalize()
   }
 }

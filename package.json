@@ -1,6 +1,6 @@
 {
   "name": "p2p-netcat",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "TCP/QUIC netcat-like CLI addressed by libp2p PeerId instead of IP",
   "type": "module",
   "workspaces": [
@@ -81,7 +81,8 @@
     "@libp2p/websockets": "^10.1.17",
     "@multiformats/multiaddr": "^13.0.1",
     "@roamhq/wrtc": "^0.10.0",
-    "p2p-netcat-core": "^0.2.2",
+    "@trystero-p2p/nostr": "^0.25.3",
+    "p2p-netcat-core": "^0.2.3",
     "@trystero-p2p/torrent": "^0.25.3",
     "commander": "^14.0.0",
     "libp2p": "^3.3.6",

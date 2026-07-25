@@ -5,6 +5,7 @@ import { peerIdFromPublicKey } from "@libp2p/peer-id";
 import { defaultRelayUrls, joinRoom, type Room } from "@trystero-p2p/torrent";
 import {
   TRYSTERO_APP_ID,
+  TRYSTERO_RECONNECT_GRACE_MS,
   TrysteroStream,
   decodeTrysteroAuthResponse,
   defaultRtcConfiguration,
@@ -30,6 +31,8 @@ export class BrowserTrysteroClient {
   private receiveTask: Promise<void> | null = null;
   private connectTimer: number | null = null;
   private rejectConnect: ((error: Error) => void) | null = null;
+  private remoteId: string | null = null;
+  private removePeerStateListeners: (() => void) | null = null;
   private stopped = false;
 
   constructor(events: ClientEvents) {
@@ -50,7 +53,8 @@ export class BrowserTrysteroClient {
       },
     }, roomId, {
       handshakeTimeoutMs: 12_000,
-      onPeerHandshake: async (_remoteId, send, receive) => {
+      onPeerHandshake: async (remoteId, send, receive) => {
+        this.events.onLog(`WebRTC: найден кандидат ${remoteId}, проверяем PeerId`);
         const challenge = crypto.getRandomValues(new Uint8Array(32));
         await send(challenge);
         const response = decodeTrysteroAuthResponse(bytes((await receive()).data));
@@ -59,6 +63,7 @@ export class BrowserTrysteroClient {
         if (authenticatedPeerId !== targetPeerId) throw new Error(`WebRTC peer предъявил другой PeerId: ${authenticatedPeerId}`);
         const valid = await publicKey.verify(trysteroAuthPayload(targetPeerId, logicalPort, challenge), response.signature);
         if (!valid) throw new Error("Некорректная подпись WebRTC PeerId");
+        this.events.onLog(`WebRTC: PeerId ${targetPeerId} подтверждён`, "success");
       },
       onJoinError: ({ error }) => this.events.onLog(`Trystero handshake отклонён: ${error}`),
     });
@@ -76,11 +81,24 @@ export class BrowserTrysteroClient {
       }, timeoutMs);
 
       room.onPeerJoin = (remoteId) => {
-        if (settled || this.stopped) return;
+        if (this.stopped) return;
+        if (settled) {
+          if (
+            remoteId === this.remoteId
+            && this.stream?.connectionStatus === "reconnecting"
+            && this.stream.peerReconnected()
+          ) {
+            this.watchPeerConnection(room, remoteId);
+            this.events.onLog("WebRTC-канал восстановлен; продолжаем прежнюю сессию", "success");
+            this.events.onReconnected();
+          }
+          return;
+        }
         settled = true;
         if (this.connectTimer != null) window.clearTimeout(this.connectTimer);
         this.connectTimer = null;
         this.rejectConnect = null;
+        this.remoteId = remoteId;
         const stream = new TrysteroStream({
           sendData: (chunk) => data.send(chunk, { target: remoteId }),
           sendControl: (value) => control.send(value, { target: remoteId }),
@@ -94,8 +112,16 @@ export class BrowserTrysteroClient {
           if (context.peerId === remoteId) stream.receiveControl(String(value));
         };
         room.onPeerLeave = (peerId) => {
-          if (peerId === remoteId) stream.peerLeft();
+          if (peerId !== remoteId || stream.status === "closed") return;
+          stream.peerDisconnected(TRYSTERO_RECONNECT_GRACE_MS);
+          this.removePeerStateListeners?.();
+          this.removePeerStateListeners = null;
+          this.events.onLog(
+            `WebRTC-канал временно потерян; сохраняем PTY и ждём переподключение до ${TRYSTERO_RECONNECT_GRACE_MS / 1000} с`,
+          );
+          this.events.onReconnecting();
         };
+        this.watchPeerConnection(room, remoteId);
         this.receiveTask = this.receiveLoop(stream);
         resolve();
       };
@@ -119,11 +145,14 @@ export class BrowserTrysteroClient {
     this.connectTimer = null;
     this.rejectConnect?.(new Error("Trystero/WebRTC-подключение отменено"));
     this.rejectConnect = null;
+    this.removePeerStateListeners?.();
+    this.removePeerStateListeners = null;
     if (this.stream?.status !== "closed") this.stream?.abort(new Error("WebRTC-соединение закрыто пользователем"));
     await this.receiveTask?.catch(() => {});
     await this.room?.leave().catch(() => {});
     this.room = null;
     this.stream = null;
+    this.remoteId = null;
   }
 
   private async receiveLoop(stream: TrysteroStream) {
@@ -132,7 +161,31 @@ export class BrowserTrysteroClient {
     } catch (error) {
       if (!this.stopped) this.events.onLog(error instanceof Error ? error.message : String(error), "error");
     } finally {
+      if (!this.stopped && stream.writeStatus === "writable") {
+        await stream.close().catch(() => {});
+      }
       if (!this.stopped) this.events.onClosed();
     }
+  }
+
+  private watchPeerConnection(room: Room, remoteId: string) {
+    this.removePeerStateListeners?.();
+    const connection = room.getPeers()[remoteId];
+    if (connection == null) return;
+
+    let previous = "";
+    const reportState = () => {
+      const state = `connection=${connection.connectionState}, ICE=${connection.iceConnectionState}`;
+      if (state === previous) return;
+      previous = state;
+      this.events.onLog(`WebRTC state: ${state}`);
+    };
+    connection.addEventListener("connectionstatechange", reportState);
+    connection.addEventListener("iceconnectionstatechange", reportState);
+    this.removePeerStateListeners = () => {
+      connection.removeEventListener("connectionstatechange", reportState);
+      connection.removeEventListener("iceconnectionstatechange", reportState);
+    };
+    reportState();
   }
 }

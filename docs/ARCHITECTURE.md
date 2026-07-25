@@ -121,8 +121,10 @@ Delegated Routing and DHT are sequential fallback layers. The dial attempts for
 the resulting candidate multiaddrs are the parallel part.
 
 Trystero/WebRTC runs in parallel with the complete libp2p branch. Server and
-client join a deterministic room derived from `PeerId + logical port`; public
-WebTorrent trackers carry SDP/ICE signaling only. Before application data is
+client join a deterministic room derived from `PeerId + logical port`. Node.js
+races Nostr and BitTorrent signaling rooms; the browser uses the compatible
+BitTorrent room. Public relays and trackers carry SDP/ICE signaling only.
+Before application data is
 accepted, the client sends a random 32-byte challenge. The CLI server signs a
 domain-separated transcript with its persistent Ed25519 key; the client checks
 the signature and derives the expected PeerId from the supplied public key.
@@ -137,11 +139,23 @@ Sipgate, VoIPBuster, and InternetCalls. STUN exposes public NAT mappings to the
 WebRTC stack; no p2p-netcat payload is sent through a STUN server.
 
 The BitTorrent signaling strategy enables trickle ICE and connects to all
-trackers exported by the installed Trystero package. Automatic signaling-socket
-reconnection remains active for the lifetime of a listener or connection
-attempt; it is paused only during intentional shutdown. Once authenticated, a
-15-second `ping`/`pong` control exchange keeps an otherwise idle Trystero data
-channel active.
+trackers exported by the installed Trystero package. The Node.js adapter also
+opens five deterministic Nostr relays. Automatic signaling-socket reconnection
+remains active for the lifetime of a listener or connection attempt; it is
+paused only during intentional shutdown. Once authenticated, a 15-second
+`ping`/`pong` control exchange keeps an otherwise idle Trystero data channel
+active.
+
+Trystero itself reports a peer leave after its WebRTC connection remains
+disconnected for five seconds. p2p-netcat does not translate that event into
+EOF immediately. `TrysteroStream` enters `reconnecting` for 120 seconds, keeps
+the async iterator open, and blocks bounded writes behind a peer-availability
+waiter. If the same Trystero peer ID joins the room again, the room action
+targets the replacement data channel and the existing logical stream resumes.
+The `resume` control frame clears stale flow credits. Explicit EOF, abort, room
+shutdown, or expiry of the grace period still finalizes the stream. This keeps
+the same `node-pty` process alive across transient ICE failures and ordinary
+browser background throttling.
 
 If a manual relay is supplied, automatic discovery is skipped. The core package
 requires a relay PeerId, WS/WSS transport, and WSS for an HTTPS page, then builds
@@ -194,6 +208,9 @@ Interactive terminal output has a bounded, end-to-end pipeline:
    wait on the main thread and resumes below 128 KiB.
 6. The main thread acknowledges a Worker block only after xterm calls the
    completion callback supplied to `Terminal.write()`.
+7. During a recoverable WebRTC disconnect the same bounded queues wait for up
+   to 120 seconds; they are neither converted to EOF nor allowed to grow
+   without limit.
 
 The result is bounded memory at every producer/consumer boundary. Interactive
 output is deliberately excluded from the browser's downloadable-response

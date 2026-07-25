@@ -70,6 +70,12 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.match(trystero, /trickleIce: true/);
   assert.match(core, /flowWindowBytes/);
   assert.match(core, /ack:/);
+  assert.match(core, /peerDisconnected/);
+  assert.match(core, /peerReconnected/);
+  assert.match(core, /TRYSTERO_RECONNECT_GRACE_MS/);
+  assert.match(trystero, /connectionStatus === "reconnecting"/);
+  assert.match(trystero, /WebRTC-канал восстановлен/);
+  assert.match(page, /reconnecting/);
   assert.match(page, /Необязательно · используется автопоиск/);
   assert.doesNotMatch(page, /!targetPeerId \|\| !relayAddress/);
   assert.match(main, /location\.hostname\.endsWith\("\.github\.io"\)/);

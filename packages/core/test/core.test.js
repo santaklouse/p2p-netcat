@@ -181,3 +181,74 @@ test('Trystero stream limits unacknowledged output until the consumer advances',
   assert.deepEqual(await completed, { value: undefined, done: true })
   await receiver.close()
 })
+
+test('Trystero stream preserves queued data while the peer reconnects', async () => {
+  const sent = []
+  const controls = []
+  const stream = new TrysteroStream({
+    keepAliveIntervalMs: 0,
+    sendData: async bytes => sent.push([...bytes]),
+    sendControl: async control => controls.push(control)
+  })
+  await new Promise(resolve => setImmediate(resolve))
+
+  stream.peerDisconnected(1_000)
+  assert.equal(stream.connectionStatus, 'reconnecting')
+  stream.send(Uint8Array.from([7, 8, 9]))
+  const drain = stream.onDrain()
+  let drained = false
+  void drain.then(() => {
+    drained = true
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(drained, false)
+  assert.deepEqual(sent, [])
+
+  assert.equal(stream.peerReconnected(), true)
+  await drain
+  assert.equal(stream.connectionStatus, 'connected')
+  assert.deepEqual(sent, [[7, 8, 9]])
+  assert.ok(controls.includes('resume'))
+  await stream.close()
+})
+
+test('Trystero stream closes only after the reconnect grace period expires', async () => {
+  const stream = new TrysteroStream({
+    keepAliveIntervalMs: 0,
+    sendData: async () => {},
+    sendControl: async () => {}
+  })
+
+  stream.peerDisconnected(20)
+  assert.equal(stream.status, 'open')
+  assert.equal(stream.connectionStatus, 'reconnecting')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(stream.status, 'closed')
+  assert.equal(stream.connectionStatus, 'disconnected')
+})
+
+test('Trystero stream retries a write that raced with peer disconnection', async () => {
+  let attempts = 0
+  const sent = []
+  const stream = new TrysteroStream({
+    keepAliveIntervalMs: 0,
+    sendData: async bytes => {
+      attempts += 1
+      if (attempts === 1) throw new Error('data channel closed during send')
+      sent.push([...bytes])
+    },
+    sendControl: async () => {}
+  })
+
+  stream.send(Uint8Array.from([4, 2]))
+  const drain = stream.onDrain()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(stream.connectionStatus, 'reconnecting')
+  assert.deepEqual(sent, [])
+
+  stream.peerReconnected()
+  await drain
+  assert.equal(attempts, 2)
+  assert.deepEqual(sent, [[4, 2]])
+  await stream.close()
+})

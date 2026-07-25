@@ -1,6 +1,6 @@
 {
   "name": "p2p-netcat-web",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Prebuilt static PWA client for p2p-netcat",
   "type": "module",
   "files": [

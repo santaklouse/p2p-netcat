@@ -4,7 +4,7 @@ import { BrowserP2PClient } from "./p2p-client";
 
 const BrowserTerminal = lazy(() => import("./browser-terminal"));
 
-type ConnectionState = "idle" | "starting" | "connecting" | "connected" | "closed" | "error";
+type ConnectionState = "idle" | "starting" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 type LogEntry = { id: number; time: string; message: string; kind: "info" | "success" | "error" };
 type TerminalEntry = { id: number; direction: "sent" | "received"; text: string };
 
@@ -13,6 +13,7 @@ const stateLabels: Record<ConnectionState, string> = {
   starting: "Запуск узла",
   connecting: "Соединение",
   connected: "В сети",
+  reconnecting: "Переподключение",
   closed: "Закрыто",
   error: "Ошибка",
 };
@@ -68,7 +69,7 @@ export default function Home() {
 
   const connect = async (event: FormEvent) => {
     event.preventDefault();
-    if (connectionState === "connecting" || connectionState === "starting") return;
+    if (connectionState === "connecting" || connectionState === "starting" || connectionState === "reconnecting") return;
 
     await clientRef.current?.stop();
     clientRef.current = null;
@@ -98,6 +99,8 @@ export default function Home() {
         }
       },
       onLog: addLog,
+      onReconnecting: () => setConnectionState("reconnecting"),
+      onReconnected: () => setConnectionState("connected"),
       onClosed: () => setConnectionState((state) => state === "error" ? state : "closed"),
     });
     clientRef.current = client;
@@ -193,6 +196,7 @@ export default function Home() {
   };
 
   const connected = connectionState === "connected";
+  const sessionActive = connected || connectionState === "reconnecting";
   const visibleTerminalEntries = showSentText
     ? terminalEntries
     : terminalEntries.filter((entry) => entry.direction === "received");
@@ -237,7 +241,7 @@ export default function Home() {
                 spellCheck={false}
                 autoComplete="off"
                 required
-                disabled={connected}
+                disabled={sessionActive}
                 aria-describedby="peer-help"
               />
               <small id="peer-help">Значение печатает команда <code>p2p-nc -l</code></small>
@@ -255,7 +259,7 @@ export default function Home() {
                   onChange={(event) => setRelayAddress(event.target.value)}
                   spellCheck={false}
                   autoComplete="off"
-                  disabled={connected}
+                  disabled={sessionActive}
                   placeholder="Оставьте пустым для автоматического поиска"
                   aria-describedby="relay-help"
                 />
@@ -272,7 +276,7 @@ export default function Home() {
                 value={logicalPort}
                 onChange={(event) => setLogicalPort(Number(event.target.value))}
                 required
-                disabled={connected}
+                disabled={sessionActive}
               />
             </label>
 
@@ -285,7 +289,7 @@ export default function Home() {
                   value={timeout}
                   onChange={(event) => setTimeout(Number(event.target.value))}
                   required
-                  disabled={connected}
+                  disabled={sessionActive}
               />
             </label>
 
@@ -294,7 +298,7 @@ export default function Home() {
                 type="checkbox"
                 checked={interactive}
                 onChange={(event) => setInteractive(event.target.checked)}
-                disabled={connectionState === "starting" || connectionState === "connecting" || connected}
+                disabled={connectionState === "starting" || connectionState === "connecting" || sessionActive}
               />
               <span>
                 Интерактивный PTY <code>-i</code>
@@ -302,7 +306,7 @@ export default function Home() {
               </span>
             </label>
 
-            {!connected ? (
+            {!sessionActive ? (
               <button className="primary-button" type="submit" disabled={!targetPeerId || connectionState === "starting" || connectionState === "connecting"}>
                 <span>Подключиться</span><span aria-hidden="true">↗</span>
               </button>

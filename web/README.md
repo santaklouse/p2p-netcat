@@ -63,6 +63,14 @@ in the downloadable response buffer, so a long-running shell does not retain
 its complete history in JavaScript memory; xterm's configured scrollback
 remains the visible history.
 
+A Trystero peer loss is not treated as PTY EOF immediately. The UI changes to
+`Reconnecting`, the server keeps the existing shell, and bounded writes wait
+for the same peer for up to 120 seconds. If Trystero rebuilds the WebRTC data
+channel during that window, the old stream and PTY continue. Merely changing
+window focus does not call `stop()`. A complete tab discard or page reload is
+different because it destroys the browser JavaScript context and its ephemeral
+Trystero peer identity.
+
 When the relay field is empty, Trystero/WebRTC and the Worker start
 simultaneously. The Worker listens for signed announcements on the app-specific
 GossipSub topic, resolves the PeerId through

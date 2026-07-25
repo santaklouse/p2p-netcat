@@ -6,9 +6,9 @@
 
 | Пакет | Версия | Содержимое |
 |---|---:|---|
-| `p2p-netcat-core` | `0.2.2` | Browser-safe protocol, discovery, route planning, Trystero и PTY-примитивы |
-| `p2p-netcat` | `3.0.3` | Node.js CLI и точки входа `p2p-netcat/core`, `p2p-netcat/relay` |
-| `p2p-netcat-web` | `0.3.2` | Собранная статическая PWA в каталоге пакета `dist` |
+| `p2p-netcat-core` | `0.2.3` | Browser-safe protocol, discovery, route planning, Trystero и PTY-примитивы |
+| `p2p-netcat` | `3.0.4` | Node.js CLI и точки входа `p2p-netcat/core`, `p2p-netcat/relay` |
+| `p2p-netcat-web` | `0.3.3` | Собранная статическая PWA в каталоге пакета `dist` |
 
 Исходный GitHub-репозиторий:
 [`santaklouse/p2p-netcat`](https://github.com/santaklouse/p2p-netcat).
@@ -63,7 +63,7 @@ npm publish ./web --access public
 
 Пакет `p2p-netcat` был полностью удалён 20 июля 2026 года. npm блокирует
 повторное использование имени на 24 часа, а уже использованную комбинацию
-`name@version` нельзя опубликовать снова никогда. Версия `3.0.3` намеренно выше
+`name@version` нельзя опубликовать снова никогда. Версия `3.0.4` намеренно выше
 удалённых релизов.
 
 Web-пакет публикует только собранный `dist`, README, лицензию и метаданные.
@@ -83,9 +83,9 @@ npm view p2p-netcat-web version dist-tags.latest maintainers --json
 ```bash
 release_test_dir="$(mktemp -d)"
 npm install --prefix "${release_test_dir}" \
-  p2p-netcat-core@0.2.2 \
-  p2p-netcat@3.0.3 \
-  p2p-netcat-web@0.3.2
+  p2p-netcat-core@0.2.3 \
+  p2p-netcat@3.0.4 \
+  p2p-netcat-web@0.3.3
 "${release_test_dir}/node_modules/.bin/p2p-nc" --version
 test -f "${release_test_dir}/node_modules/p2p-netcat-web/dist/index.html"
 ```
@@ -93,7 +93,7 @@ test -f "${release_test_dir}/node_modules/p2p-netcat-web/dist/index.html"
 Ожидаемый вывод CLI:
 
 ```text
-3.0.3
+3.0.4
 ```
 
 ## Следующие релизы

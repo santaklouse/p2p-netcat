@@ -2,14 +2,19 @@ import wrtc from '@roamhq/wrtc'
 import { publicKeyFromProtobuf, publicKeyToProtobuf } from '@libp2p/crypto/keys'
 import { peerIdFromPublicKey, peerIdFromPrivateKey } from '@libp2p/peer-id'
 import {
-  defaultRelayUrls,
-  getRelaySockets,
-  joinRoom,
+  getRelaySockets as getNostrRelaySockets,
+  joinRoom as joinNostrRoom
+} from '@trystero-p2p/nostr'
+import {
+  defaultRelayUrls as defaultTorrentRelayUrls,
+  getRelaySockets as getTorrentRelaySockets,
+  joinRoom as joinTorrentRoom,
   pauseRelayReconnection,
   resumeRelayReconnection
 } from '@trystero-p2p/torrent'
 import {
   TRYSTERO_APP_ID,
+  TRYSTERO_RECONNECT_GRACE_MS,
   TrysteroStream,
   defaultRtcConfiguration,
   decodeTrysteroAuthResponse,
@@ -21,6 +26,37 @@ import {
 const { RTCPeerConnection } = wrtc
 const DATA_ACTION = 'pnc-data-v1'
 const CONTROL_ACTION = 'pnc-ctl-v1'
+const RELAY_STATUS_DELAY_MS = 1_500
+const SEARCH_PROGRESS_INTERVAL_MS = 5_000
+
+const SIGNALING_STRATEGIES = [
+  {
+    id: 'nostr',
+    label: 'Nostr',
+    joinRoom: joinNostrRoom,
+    getRelaySockets: getNostrRelaySockets,
+    relayConfig: {
+      redundancy: 5,
+      warnOnRelayFailure: false
+    }
+  },
+  {
+    id: 'torrent',
+    label: 'BitTorrent',
+    joinRoom: joinTorrentRoom,
+    getRelaySockets: getTorrentRelaySockets,
+    relayConfig: {
+      urls: [...defaultTorrentRelayUrls],
+      warnOnRelayFailure: false
+    }
+  }
+]
+
+let activeRoomCount = 0
+
+function verboseLog (enabled, message) {
+  if (enabled) process.stderr.write(`[p2p-nc] ${message}\n`)
+}
 
 function bytes (value) {
   if (value instanceof Uint8Array) return value
@@ -29,36 +65,106 @@ function bytes (value) {
   throw new Error('Trystero передал данные неизвестного типа')
 }
 
-function roomConfig () {
+function roomConfig (strategy) {
   return {
     appId: TRYSTERO_APP_ID,
     rtcPolyfill: RTCPeerConnection,
     trickleIce: true,
     rtcConfig: defaultRtcConfiguration(),
-    relayConfig: {
-      urls: [...defaultRelayUrls],
-      warnOnRelayFailure: false
-    }
+    relayConfig: strategy.relayConfig
   }
 }
 
-function closeRelaySockets () {
+function retainRelaySession () {
+  if (activeRoomCount === 0) resumeRelayReconnection()
+  activeRoomCount += 1
+}
+
+function closeRelaySocket (socket) {
+  const close = () => {
+    try {
+      socket.close()
+    } catch {}
+  }
+
+  if (socket.readyState === 0) socket.addEventListener('open', close, { once: true })
+  else close()
+}
+
+function releaseRelaySession () {
+  activeRoomCount = Math.max(0, activeRoomCount - 1)
+  if (activeRoomCount !== 0) return
+
   pauseRelayReconnection()
-  for (const socket of Object.values(getRelaySockets())) {
-    const close = () => {
-      try {
-        socket.close()
-      } catch {}
-    }
-    if (socket.readyState === 0) socket.addEventListener('open', close, { once: true })
-    else close()
+  for (const strategy of SIGNALING_STRATEGIES) {
+    for (const socket of Object.values(strategy.getRelaySockets())) closeRelaySocket(socket)
   }
 }
 
-function createHub (room, { onStream, leaveAfterStream = false } = {}) {
+function relayStatus (strategy) {
+  const sockets = Object.values(strategy.getRelaySockets())
+  const open = sockets.filter(socket => socket.readyState === 1).length
+  const connecting = sockets.filter(socket => socket.readyState === 0).length
+  return `${strategy.label} ${open}/${sockets.length} открыто${connecting > 0 ? `, ${connecting} подключается` : ''}`
+}
+
+function signalingStatus () {
+  return SIGNALING_STRATEGIES.map(relayStatus).join('; ')
+}
+
+function watchPeerConnection (room, remoteId, strategy, verbose) {
+  if (!verbose) return
+  const connection = room.getPeers()[remoteId]
+  if (connection == null) return
+  let previous
+  const report = () => {
+    const state = `connection=${connection.connectionState}, ICE=${connection.iceConnectionState}`
+    if (state === previous) return
+    previous = state
+    verboseLog(true, `WebRTC/${strategy.label}: ${remoteId}: ${state}`)
+  }
+  connection.addEventListener?.('connectionstatechange', report)
+  connection.addEventListener?.('iceconnectionstatechange', report)
+  report()
+}
+
+function joinStrategyRoom (strategy, roomId, callbacks) {
+  retainRelaySession()
+  try {
+    const room = strategy.joinRoom(roomConfig(strategy), roomId, callbacks)
+    return { room, release: releaseRelaySession }
+  } catch (error) {
+    releaseRelaySession()
+    throw error
+  }
+}
+
+export function createTrysteroHub (room, {
+  onStream,
+  onStreamClosed,
+  onPeerDisconnected,
+  onPeerReconnected,
+  leaveAfterStream = false,
+  reconnectGraceMs = TRYSTERO_RECONNECT_GRACE_MS,
+  release = () => {}
+} = {}) {
   const streams = new Map()
   const data = room.makeAction(DATA_ACTION)
   const control = room.makeAction(CONTROL_ACTION)
+  let closePromise
+
+  const close = () => {
+    closePromise ??= (async () => {
+      for (const stream of streams.values()) stream.peerLeft()
+      streams.clear()
+      try {
+        await room.leave()
+      } finally {
+        release()
+      }
+    })()
+    return closePromise
+  }
 
   const streamFor = peerId => {
     let stream = streams.get(peerId)
@@ -68,7 +174,8 @@ function createHub (room, { onStream, leaveAfterStream = false } = {}) {
       sendControl: value => control.send(value, { target: peerId }),
       onFinalize: () => {
         streams.delete(peerId)
-        if (leaveAfterStream) void room.leave()
+        onStreamClosed?.(peerId, stream)
+        if (leaveAfterStream) void close()
       }
     })
     streams.set(peerId, stream)
@@ -77,78 +184,201 @@ function createHub (room, { onStream, leaveAfterStream = false } = {}) {
 
   data.onMessage = (chunk, { peerId }) => streamFor(peerId).receiveData(bytes(chunk))
   control.onMessage = (value, { peerId }) => streamFor(peerId).receiveControl(String(value))
-  room.onPeerJoin = peerId => onStream?.(streamFor(peerId), peerId)
+  room.onPeerJoin = peerId => {
+    const existing = streams.get(peerId)
+    if (existing != null) {
+      if (existing.connectionStatus === 'reconnecting' && existing.peerReconnected()) {
+        onPeerReconnected?.(peerId, existing)
+      }
+      return
+    }
+    onStream?.(streamFor(peerId), peerId)
+  }
   room.onPeerLeave = peerId => {
-    streams.get(peerId)?.peerLeft()
-    streams.delete(peerId)
+    const stream = streams.get(peerId)
+    if (stream == null) return
+    stream.peerDisconnected(reconnectGraceMs)
+    onPeerDisconnected?.(peerId, stream)
   }
 
-  return {
-    streamFor,
-    async close () {
-      for (const stream of streams.values()) stream.peerLeft()
-      streams.clear()
-      await room.leave()
-      closeRelaySockets()
-    }
-  }
+  return { streamFor, close }
 }
 
-export function startTrysteroListener ({ privateKey, service, onStream, verbose = false }) {
-  resumeRelayReconnection()
-  const peerId = peerIdFromPrivateKey(privateKey).toString()
-  const roomId = trysteroRoomId(peerId, service)
-  const room = joinRoom(roomConfig(), roomId, {
+function startStrategyListener ({
+  strategy,
+  privateKey,
+  peerId,
+  service,
+  roomId,
+  onStream,
+  onStreamClosed,
+  verbose
+}) {
+  const joined = joinStrategyRoom(strategy, roomId, {
     handshakeTimeoutMs: 12_000,
-    onPeerHandshake: async (_remoteId, _send, receive) => {
+    onPeerHandshake: async (remoteId, send, receive) => {
+      verboseLog(verbose, `WebRTC/${strategy.label}: найден кандидат ${remoteId}, подписываю проверочный запрос`)
       const request = await receive()
       const challenge = bytes(request.data)
       const signature = await privateKey.sign(trysteroAuthPayload(peerId, service, challenge))
-      await _send(encodeTrysteroAuthResponse(publicKeyToProtobuf(privateKey.publicKey), signature))
+      await send(encodeTrysteroAuthResponse(publicKeyToProtobuf(privateKey.publicKey), signature))
+      verboseLog(verbose, `WebRTC/${strategy.label}: проверочный ответ отправлен кандидату ${remoteId}`)
     },
-    onJoinError: ({ error }) => {
-      if (verbose) process.stderr.write(`[p2p-nc] Trystero handshake отклонён: ${error}\n`)
+    onJoinError: ({ error, peerId: remoteId }) => {
+      verboseLog(verbose, `WebRTC/${strategy.label}: кандидат ${remoteId ?? 'unknown'} отклонён: ${error}`)
     }
   })
-  const hub = createHub(room, { onStream })
-  if (verbose) process.stderr.write(`[p2p-nc] Trystero/WebRTC room активна для ${peerId}:${service}\n`)
+
+  const hub = createTrysteroHub(joined.room, {
+    release: joined.release,
+    onPeerDisconnected: (remoteId, stream) => {
+      verboseLog(
+        verbose,
+        `WebRTC/${strategy.label}: канал ${remoteId} потерян; сохраняю сессию ${TRYSTERO_RECONNECT_GRACE_MS / 1000} с для переподключения`
+      )
+      onStreamClosed?.(remoteId, stream, { temporary: true })
+    },
+    onPeerReconnected: (remoteId, stream) => {
+      watchPeerConnection(joined.room, remoteId, strategy, verbose)
+      verboseLog(verbose, `WebRTC/${strategy.label}: канал ${remoteId} восстановлен, продолжаю прежнюю сессию`)
+      onStream?.(stream, remoteId, strategy, { reconnected: true })
+    },
+    onStreamClosed: (remoteId, stream) => {
+      if (stream.connectionStatus === 'disconnected') {
+        verboseLog(verbose, `WebRTC/${strategy.label}: срок ожидания ${remoteId} истёк, сессия закрыта`)
+      }
+      onStreamClosed?.(remoteId, stream)
+    },
+    onStream: (stream, remoteId) => {
+      watchPeerConnection(joined.room, remoteId, strategy, verbose)
+      onStream(stream, remoteId, strategy)
+    }
+  })
+  verboseLog(verbose, `WebRTC/${strategy.label}: слушаю room для ${peerId}:${service}`)
   return hub
 }
 
-export function connectTrystero ({ peerId, service, timeoutMs = 30_000, verbose = false }) {
-  resumeRelayReconnection()
+export function startTrysteroListener ({ privateKey, service, onStream, verbose = false }) {
+  const peerId = peerIdFromPrivateKey(privateKey).toString()
   const roomId = trysteroRoomId(peerId, service)
+  const activeStreams = new Map()
+  const hubs = []
+
+  const onStrategyStream = (stream, remoteId, strategy, { reconnected = false } = {}) => {
+    if (reconnected) {
+      if (activeStreams.get(remoteId) === stream) {
+        verboseLog(verbose, `WebRTC/${strategy.label}: PTY/поток ${remoteId} успешно возобновлён`)
+      }
+      return
+    }
+
+    const current = activeStreams.get(remoteId)
+    if (current != null) {
+      verboseLog(verbose, `WebRTC/${strategy.label}: закрываю дублирующий канал кандидата ${remoteId}`)
+      stream.abort(new Error('Другой signaling-канал уже установил соединение'))
+      return
+    }
+
+    activeStreams.set(remoteId, stream)
+    Object.defineProperty(stream, 'signalingStrategy', {
+      configurable: true,
+      value: strategy.label
+    })
+    verboseLog(verbose, `WebRTC/${strategy.label}: прямой канал установлен с ${remoteId}`)
+    onStream?.(stream, remoteId, strategy.label)
+  }
+
+  const onStreamClosed = (remoteId, stream, { temporary = false } = {}) => {
+    if (temporary) return
+    if (activeStreams.get(remoteId) === stream) activeStreams.delete(remoteId)
+  }
+
+  for (const strategy of SIGNALING_STRATEGIES) {
+    try {
+      hubs.push(startStrategyListener({
+        strategy,
+        privateKey,
+        peerId,
+        service,
+        roomId,
+        onStream: onStrategyStream,
+        onStreamClosed,
+        verbose
+      }))
+    } catch (error) {
+      verboseLog(verbose, `WebRTC/${strategy.label}: signaling не запущен: ${error.message}`)
+    }
+  }
+
+  if (hubs.length === 0) throw new Error('Не удалось запустить ни один Trystero signaling-канал')
+
+  const relayStatusTimer = verbose
+    ? setTimeout(() => verboseLog(true, `WebRTC relay-состояние: ${signalingStatus()}`), RELAY_STATUS_DELAY_MS)
+    : null
+  relayStatusTimer?.unref?.()
+
+  return {
+    async close () {
+      if (relayStatusTimer != null) clearTimeout(relayStatusTimer)
+      activeStreams.clear()
+      await Promise.allSettled(hubs.map(hub => hub.close()))
+    }
+  }
+}
+
+function connectWithStrategy ({ strategy, peerId, service, roomId, timeoutMs, verbose }) {
   let settled = false
   let rejectAttempt
   let timeout
   let hub
 
-  const room = joinRoom(roomConfig(), roomId, {
+  const joined = joinStrategyRoom(strategy, roomId, {
     handshakeTimeoutMs: 12_000,
-    onPeerHandshake: async (_remoteId, send, receive) => {
+    onPeerHandshake: async (remoteId, send, receive) => {
+      verboseLog(verbose, `WebRTC/${strategy.label}: найден кандидат ${remoteId}, проверяю PeerId`)
       const challenge = crypto.getRandomValues(new Uint8Array(32))
       await send(challenge)
       const response = decodeTrysteroAuthResponse((await receive()).data)
       const publicKey = publicKeyFromProtobuf(response.publicKey)
       const authenticatedPeerId = peerIdFromPublicKey(publicKey).toString()
-      if (authenticatedPeerId !== peerId) throw new Error(`Trystero peer предъявил другой PeerId: ${authenticatedPeerId}`)
+      if (authenticatedPeerId !== peerId) throw new Error(`пир предъявил другой PeerId: ${authenticatedPeerId}`)
       const valid = await publicKey.verify(trysteroAuthPayload(peerId, service, challenge), response.signature)
-      if (!valid) throw new Error('Некорректная подпись Trystero PeerId')
+      if (!valid) throw new Error('некорректная подпись PeerId')
+      verboseLog(verbose, `WebRTC/${strategy.label}: PeerId ${peerId} подтверждён`)
     },
-    onJoinError: ({ error }) => {
-      if (verbose) process.stderr.write(`[p2p-nc] Trystero peer отклонён: ${error}\n`)
+    onJoinError: ({ error, peerId: remoteId }) => {
+      verboseLog(verbose, `WebRTC/${strategy.label}: кандидат ${remoteId ?? 'unknown'} отклонён: ${error}`)
     }
   })
 
   const promise = new Promise((resolve, reject) => {
     rejectAttempt = reject
-    hub = createHub(room, {
+    hub = createTrysteroHub(joined.room, {
+      release: joined.release,
       leaveAfterStream: true,
+      onPeerDisconnected: remoteId => {
+        verboseLog(
+          verbose,
+          `WebRTC/${strategy.label}: канал ${remoteId} потерян; жду переподключение до ${TRYSTERO_RECONNECT_GRACE_MS / 1000} с`
+        )
+      },
+      onPeerReconnected: remoteId => {
+        watchPeerConnection(joined.room, remoteId, strategy, verbose)
+        verboseLog(verbose, `WebRTC/${strategy.label}: канал ${remoteId} восстановлен, поток продолжен`)
+      },
       onStream: (stream, remoteId) => {
-        if (settled) return
+        if (settled) {
+          stream.abort(new Error('Попытка подключения уже завершена'))
+          return
+        }
         settled = true
         clearTimeout(timeout)
-        if (verbose) process.stderr.write(`[p2p-nc] прямой Trystero/WebRTC-канал установлен: ${remoteId}\n`)
+        Object.defineProperty(stream, 'signalingStrategy', {
+          configurable: true,
+          value: strategy.label
+        })
+        watchPeerConnection(joined.room, remoteId, strategy, verbose)
+        verboseLog(verbose, `WebRTC/${strategy.label}: прямой канал установлен с ${remoteId}`)
         resolve(stream)
       }
     })
@@ -156,19 +386,90 @@ export function connectTrystero ({ peerId, service, timeoutMs = 30_000, verbose 
       if (settled) return
       settled = true
       void hub.close()
-      reject(new Error(`Trystero/WebRTC не нашёл ${peerId}:${service} за ${Math.ceil(timeoutMs / 1000)} с`))
+      reject(new Error(`${strategy.label} не нашёл ${peerId}:${service}`))
     }, timeoutMs)
   })
 
   return {
+    strategy,
     promise,
     async close () {
       clearTimeout(timeout)
       if (!settled) {
         settled = true
-        rejectAttempt?.(new Error('Trystero/WebRTC-подключение отменено'))
+        rejectAttempt?.(new Error(`${strategy.label}-подключение отменено`))
       }
       await hub.close()
+    }
+  }
+}
+
+export function connectTrystero ({ peerId, service, timeoutMs = 30_000, verbose = false }) {
+  const roomId = trysteroRoomId(peerId, service)
+  const attempts = []
+  let closed = false
+
+  verboseLog(verbose, 'WebRTC: запускаю параллельный поиск через Nostr и BitTorrent signaling')
+  for (const strategy of SIGNALING_STRATEGIES) {
+    try {
+      attempts.push(connectWithStrategy({ strategy, peerId, service, roomId, timeoutMs, verbose }))
+      verboseLog(verbose, `WebRTC/${strategy.label}: подключаюсь к публичным relay-узлам`)
+    } catch (error) {
+      verboseLog(verbose, `WebRTC/${strategy.label}: signaling не запущен: ${error.message}`)
+    }
+  }
+
+  if (attempts.length === 0) {
+    return {
+      promise: Promise.reject(new Error('Не удалось запустить ни один Trystero signaling-канал')),
+      async close () {}
+    }
+  }
+
+  const startedAt = Date.now()
+  const reportProgress = () => {
+    const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+    verboseLog(verbose, `WebRTC: ищу ${peerId}:${service}, прошло ${seconds} с; ${signalingStatus()}`)
+  }
+  const firstStatusTimer = verbose ? setTimeout(reportProgress, RELAY_STATUS_DELAY_MS) : null
+  const progressTimer = verbose ? setInterval(reportProgress, SEARCH_PROGRESS_INTERVAL_MS) : null
+  firstStatusTimer?.unref?.()
+  progressTimer?.unref?.()
+
+  const clearProgress = () => {
+    if (firstStatusTimer != null) clearTimeout(firstStatusTimer)
+    if (progressTimer != null) clearInterval(progressTimer)
+  }
+
+  const promise = Promise.any(attempts.map(attempt => (
+    attempt.promise.then(stream => ({ attempt, stream }))
+  ))).then(async ({ attempt: winner, stream }) => {
+    clearProgress()
+    const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1)
+    verboseLog(verbose, `WebRTC: выбран signaling ${winner.strategy.label}, соединение заняло ${elapsedSeconds} с`)
+    await Promise.allSettled(
+      attempts.filter(attempt => attempt !== winner).map(attempt => attempt.close())
+    )
+    return stream
+  }).catch(error => {
+    clearProgress()
+    if (closed) throw new Error('Trystero/WebRTC-подключение отменено', { cause: error })
+    const reasons = error instanceof AggregateError
+      ? error.errors.map(item => item.message).join('; ')
+      : error.message
+    throw new Error(
+      `Trystero/WebRTC не нашёл ${peerId}:${service} за ${Math.ceil(timeoutMs / 1000)} с: ${reasons}`,
+      { cause: error }
+    )
+  })
+
+  return {
+    promise,
+    async close () {
+      if (closed) return
+      closed = true
+      clearProgress()
+      await Promise.allSettled(attempts.map(attempt => attempt.close()))
     }
   }
 }

@@ -12,6 +12,8 @@ export type ClientEvents = {
   onData: (bytes: Uint8Array) => void | Promise<void>;
   onLog: (message: string, kind?: "info" | "success" | "error") => void;
   onClosed: () => void;
+  onReconnecting: () => void;
+  onReconnected: () => void;
 };
 
 type WorkerRequest = {
@@ -171,6 +173,8 @@ export class BrowserP2PClient {
     this.transportEvents = {
       onData: (bytes) => this.receive(bytes),
       onLog: events.onLog,
+      onReconnecting: events.onReconnecting,
+      onReconnected: events.onReconnected,
       onClosed: () => {
         if (this.interactive) {
           try {

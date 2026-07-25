@@ -7,6 +7,7 @@ export const TRYSTERO_APP_ID: "io.github.santaklouse.p2p-netcat.v1";
 export const TRYSTERO_AUTH_VERSION: 1;
 export const PUBSUB_DISCOVERY_TOPIC: "io.github.santaklouse.p2p-netcat.peer-discovery.v1";
 export const PUBSUB_DISCOVERY_INTERVAL_MS: 10000;
+export const TRYSTERO_RECONNECT_GRACE_MS: 120000;
 export const PTY_FRAME_DATA: 0;
 export const PTY_FRAME_RESIZE: 1;
 export const PTY_FRAME_HEADER_LENGTH: 5;
@@ -71,6 +72,7 @@ export function decodeTrysteroAuthResponse(value: ArrayBuffer | ArrayBufferView)
 export class TrysteroStream implements AsyncIterable<Uint8Array> {
   status: "open" | "closed";
   writeStatus: "writable" | "closing" | "closed";
+  connectionStatus: "connected" | "reconnecting" | "disconnected";
   constructor(options: {
     sendData: (bytes: Uint8Array) => void | Promise<void>;
     sendControl: (control: string) => void | Promise<void>;
@@ -84,6 +86,8 @@ export class TrysteroStream implements AsyncIterable<Uint8Array> {
   abort(error?: Error): void;
   receiveData(chunk: ArrayBuffer | ArrayBufferView): void;
   receiveControl(control: string): void;
+  peerDisconnected(graceMs?: number): void;
+  peerReconnected(): boolean;
   peerLeft(): void;
   [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
 }

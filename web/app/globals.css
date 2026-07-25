@@ -34,7 +34,7 @@ code, pre, kbd { font-family: "SFMono-Regular", Consolas, "Liberation Mono", mon
 .connection-pill { display: flex; align-items: center; gap: 9px; min-width: 105px; justify-content: center; border: 1px solid var(--line); background: var(--surface); padding: 8px 13px; font: 600 11px/1 "SFMono-Regular", monospace; text-transform: uppercase; letter-spacing: .08em; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #989b92; }
 .state-connected .status-dot { background: #6da000; box-shadow: 0 0 0 3px rgba(109,160,0,.13); }
-.state-connecting .status-dot, .state-starting .status-dot { background: #d48a00; animation: pulse 1s infinite; }
+.state-connecting .status-dot, .state-starting .status-dot, .state-reconnecting .status-dot { background: #d48a00; animation: pulse 1s infinite; }
 .state-error .status-dot { background: var(--error); }
 @keyframes pulse { 50% { opacity: .35; } }
 

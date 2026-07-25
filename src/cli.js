@@ -270,6 +270,9 @@ async function runClient (target, serviceArgument, options) {
     }
 
     removeSignalHandlers = installShutdown(node)
+    if (options.verbose) {
+      stderr('[p2p-nc] запускаю параллельное подключение: libp2p (DHT/PubSub) и WebRTC (Nostr/BitTorrent)')
+    }
     const libp2pAttempt = openLibp2pStream()
 
     const useTrystero = options.webrtc !== false && !options.tor && !target.startsWith('/') && options.relay.length === 0
@@ -278,7 +281,12 @@ async function runClient (target, serviceArgument, options) {
     try {
       winner = await Promise.any([
         libp2pAttempt.then(stream => ({ transport: 'libp2p', stream })),
-        ...(trysteroAttempt == null ? [] : [trysteroAttempt.promise.then(stream => ({ transport: 'Trystero/WebRTC', stream }))])
+        ...(trysteroAttempt == null
+          ? []
+          : [trysteroAttempt.promise.then(stream => ({
+              transport: `Trystero/WebRTC (${stream.signalingStrategy ?? 'signaling'})`,
+              stream
+            }))])
       ])
     } catch (error) {
       const reasons = error instanceof AggregateError ? error.errors.map(item => item.message).join('; ') : error.message

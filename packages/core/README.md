@@ -70,6 +70,14 @@ is backward compatible: if the remote side does not advertise support, the
 stream keeps the legacy transport behavior. A lightweight `ping`/`pong`
 control message keeps an otherwise idle data channel active.
 
+`peerDisconnected()` starts a bounded recovery window instead of turning an
+unexpected WebRTC peer loss into EOF. While `connectionStatus` is
+`reconnecting`, writes remain in the existing bounded queue.
+`peerReconnected()` resumes that same logical stream and resets stale flow
+credits. The default recovery window used by p2p-netcat is
+`TRYSTERO_RECONNECT_GRACE_MS` (120 seconds). Explicit EOF and `abort()` still
+close immediately.
+
 Install the standalone browser-safe package when it is the only functionality
 needed:
 
