@@ -167,6 +167,7 @@ export async function ptyServerSession (stream, {
       exitPromise.then(code => ({ source: 'pty', code }))
     ])
     if (result.source === 'remote') {
+      if (verbose) process.stderr.write(`terminal should be killed?!\n`)
       terminal.kill()
       exitCode = await exitPromise
     } else {

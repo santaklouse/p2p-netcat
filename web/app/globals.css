@@ -65,7 +65,7 @@ code, pre, kbd { font-family: "SFMono-Regular", Consolas, "Liberation Mono", mon
 .relay-options summary > span { font-weight: 650; font-size: 12px; }
 .relay-options summary > small { margin-left: auto; text-align: right; }
 .relay-options > label { border-top: 1px dashed var(--line); padding: 13px 0 14px; }
-.port-field { max-width: 155px; }
+.port-field, .timeout-field { max-width: 155px; }
 .connection-form .interactive-mode { display: grid; grid-template-columns: 18px 1fr; align-items: start; gap: 10px; cursor: pointer; }
 .connection-form .interactive-mode > input { width: 18px; min-height: 18px; height: 18px; margin: 1px 0 0; padding: 0; accent-color: #71840b; }
 .connection-form .interactive-mode > span { display: grid; gap: 4px; font-size: 12px; }

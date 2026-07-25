@@ -55,8 +55,8 @@ class WorkerP2PClient {
     return this.request<string>("start");
   }
 
-  async connect(targetPeerId: string, logicalPort: number, relayAddress: string) {
-    await this.request("connect", { targetPeerId, logicalPort, relayAddress });
+  async connect(targetPeerId: string, logicalPort: number, relayAddress: string, timeout: number) {
+    await this.request("connect", { targetPeerId, logicalPort, relayAddress, timeout });
   }
 
   async send(bytes: Uint8Array) {
@@ -173,11 +173,11 @@ export class BrowserP2PClient {
     return this.worker.start();
   }
 
-  async connect(targetPeerId: string, logicalPort: number, relayAddress: string, interactive = false) {
+  async connect(targetPeerId: string, logicalPort: number, relayAddress: string, interactive = false, timeout: number) {
     this.interactive = interactive;
     this.ptyDecoder.reset();
     if (relayAddress.trim()) {
-      await this.worker.connect(targetPeerId, logicalPort, relayAddress);
+      await this.worker.connect(targetPeerId, logicalPort, relayAddress, timeout);
       this.active = "worker";
       this.events.onLog("Выбран указанный libp2p relay", "success");
       return;
@@ -187,8 +187,8 @@ export class BrowserP2PClient {
     this.trystero = trystero;
     try {
       const winner = await Promise.any([
-        this.worker.connect(targetPeerId, logicalPort, "").then(() => "worker" as const),
-        trystero.connect(targetPeerId, logicalPort).then(() => "trystero" as const),
+        this.worker.connect(targetPeerId, logicalPort, "", timeout).then(() => "worker" as const),
+        trystero.connect(targetPeerId, logicalPort, timeout * 1000).then(() => "trystero" as const),
       ]);
       this.active = winner;
       if (winner === "worker") {

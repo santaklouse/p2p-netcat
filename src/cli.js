@@ -154,7 +154,7 @@ async function runListener (target, serviceArgument, options) {
       return
     }
     handled = true
-    stderr(`[p2p-nc] подключен ${remotePeer} к логическому порту ${service}`)
+    stderr(`[p2p-nc] peer ${remotePeer} подключен к логическому порту ${service}`)
 
     try {
       if (options.interactive) {

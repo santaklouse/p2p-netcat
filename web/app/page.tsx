@@ -27,6 +27,7 @@ export default function Home() {
   const [targetPeerId, setTargetPeerId] = useState("");
   const [relayAddress, setRelayAddress] = useState("");
   const [logicalPort, setLogicalPort] = useState(31337);
+  const [timeout, setTimeout] = useState(30);
   const [interactive, setInteractive] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
   const [localPeerId, setLocalPeerId] = useState("");
@@ -107,7 +108,7 @@ export default function Home() {
       if (relayAddress.trim()) window.localStorage.setItem("p2p-netcat-relay", relayAddress.trim());
       else window.localStorage.removeItem("p2p-netcat-relay");
       window.localStorage.setItem("p2p-netcat-interactive", String(interactive));
-      await client.connect(targetPeerId, logicalPort, relayAddress, interactive);
+      await client.connect(targetPeerId, logicalPort, relayAddress, interactive, timeout);
       setConnectionState("connected");
       if (interactive) addLog("PTY-протокол включён; ввод передаётся напрямую с клавиатуры", "success");
     } catch (error) {
@@ -275,6 +276,19 @@ export default function Home() {
               />
             </label>
 
+            <label className="timeout-field">
+              <span>Таймаут подключения (поиск узла)</span>
+              <input
+                  type="number"
+                  min="5"
+                  max="65535"
+                  value={timeout}
+                  onChange={(event) => setTimeout(Number(event.target.value))}
+                  required
+                  disabled={connected}
+              />
+            </label>
+
             <label className="interactive-mode">
               <input
                 type="checkbox"
@@ -400,7 +414,7 @@ export default function Home() {
       </section>
 
       <footer>
-        <p>p2p-netcat web <span>v0.3.0</span></p>
+        <p>p2p-netcat web <span>v0.3.2</span></p>
         <p>Delegated Routing · IPFS DHT · WSS · Noise · Yamux</p>
       </footer>
     </main>
