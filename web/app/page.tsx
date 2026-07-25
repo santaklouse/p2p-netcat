@@ -3,6 +3,9 @@ import type { BrowserTerminalHandle } from "./browser-terminal";
 import { BrowserP2PClient } from "./p2p-client";
 
 const BrowserTerminal = lazy(() => import("./browser-terminal"));
+const INSTALL_COMMAND = "npm install --global p2p-netcat@latest";
+const INSTALLATION_RU_URL = "https://github.com/santaklouse/p2p-netcat/blob/main/docs/INSTALLATION.RU.md";
+const INSTALLATION_EN_URL = "https://github.com/santaklouse/p2p-netcat/blob/main/docs/INSTALLATION.md";
 
 type ConnectionState = "idle" | "starting" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 type LogEntry = { id: number; time: string; message: string; kind: "info" | "success" | "error" };
@@ -39,6 +42,7 @@ export default function Home() {
   const [receivedBytes, setReceivedBytes] = useState(0);
   const [sentBytes, setSentBytes] = useState(0);
   const [fileProgress, setFileProgress] = useState("");
+  const [installCopied, setInstallCopied] = useState(false);
   const clientRef = useRef<BrowserP2PClient | null>(null);
   const receivedChunks = useRef<ArrayBuffer[]>([]);
   const decoder = useRef(new TextDecoder());
@@ -195,6 +199,19 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const copyInstallCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(INSTALL_COMMAND);
+      setInstallCopied(true);
+      window.setTimeout(() => setInstallCopied(false), 2_000);
+    } catch (error) {
+      addLog(
+        `Не удалось скопировать команду: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
+  };
+
   const connected = connectionState === "connected";
   const sessionActive = connected || connectionState === "reconnecting";
   const visibleTerminalEntries = showSentText
@@ -223,6 +240,30 @@ export default function Home() {
           Введите PeerId — клиент сам найдёт браузерный маршрут через IPFS.
           Circuit Relay можно указать вручную только как резервный маршрут.
         </p>
+      </section>
+
+      <section className="install-strip" aria-labelledby="install-title">
+        <div className="install-heading">
+          <span className="step-number">CLI</span>
+          <div>
+            <p>Node.js 22+</p>
+            <h2 id="install-title">Установить консольную утилиту</h2>
+          </div>
+        </div>
+        <div className="install-command">
+          <code>{INSTALL_COMMAND}</code>
+          <button type="button" onClick={() => void copyInstallCommand()}>
+            {installCopied ? "Скопировано" : "Копировать"}
+          </button>
+        </div>
+        <nav className="install-links" aria-label="Документация по установке">
+          <a href={INSTALLATION_RU_URL} target="_blank" rel="noreferrer">
+            Инструкция по установке ↗
+          </a>
+          <a href={INSTALLATION_EN_URL} target="_blank" rel="noreferrer">
+            English ↗
+          </a>
+        </nav>
       </section>
 
       <section className="workspace" aria-label="P2P-клиент">
@@ -418,7 +459,7 @@ export default function Home() {
       </section>
 
       <footer>
-        <p>p2p-netcat web <span>v0.3.2</span></p>
+        <p>p2p-netcat web <span>v0.3.3</span></p>
         <p>Delegated Routing · IPFS DHT · WSS · Noise · Yamux</p>
       </footer>
     </main>

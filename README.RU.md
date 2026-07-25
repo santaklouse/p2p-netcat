@@ -12,6 +12,8 @@ Relay v2.
 - [Подробная архитектура и алгоритм работы](docs/ARCHITECTURE.RU.md) —
   идентичность, discovery, выбор маршрута, CLI, браузер, relay, шифрование,
   backpressure и обработка ошибок;
+- [Руководство по установке](docs/INSTALLATION.RU.md) — npm one-liner, первое
+  подключение, обновление, удаление, identity и диагностика;
 - [Браузерный PWA-клиент](web/README.RU.md) — сборка, GitHub Pages,
   `network-config.json` и настройка WSS relay;
 - [API общей JavaScript-библиотеки](packages/core/README.RU.md) — browser-safe

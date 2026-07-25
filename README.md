@@ -12,6 +12,8 @@ Amino DHT, mDNS, and Circuit Relay v2.
 - [Detailed architecture and connection algorithm](docs/ARCHITECTURE.md) —
   identity, discovery, route selection, CLI, browser, relay, encryption,
   backpressure, and failure handling;
+- [Installation guide](docs/INSTALLATION.md) — npm one-liner, first connection,
+  updates, removal, identities, and troubleshooting;
 - [Browser PWA guide](web/README.md) — build, GitHub Pages,
   `network-config.json`, and WSS relay configuration;
 - [Shared JavaScript library API](packages/core/README.md) — browser-safe

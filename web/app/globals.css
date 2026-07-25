@@ -44,6 +44,17 @@ code, pre, kbd { font-family: "SFMono-Regular", Consolas, "Liberation Mono", mon
 .hero h1 span { color: #6f860e; }
 .hero-copy { margin: 0; max-width: 400px; line-height: 1.6; color: var(--muted); padding-bottom: 5px; }
 
+.install-strip { display: grid; grid-template-columns: minmax(230px, .7fr) minmax(360px, 1.3fr) auto; align-items: center; gap: 24px; margin-bottom: 28px; padding: 18px 20px; border: 1px solid var(--ink); background: var(--surface); }
+.install-heading { display: flex; align-items: flex-start; gap: 13px; }
+.install-heading p { margin: 0 0 4px; color: var(--muted); font: 600 10px/1 "SFMono-Regular", monospace; text-transform: uppercase; letter-spacing: .12em; }
+.install-heading h2 { margin: 0; font-size: 17px; letter-spacing: -.035em; }
+.install-command { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; border: 1px solid #343a2e; background: var(--terminal); }
+.install-command code { min-width: 0; overflow-x: auto; padding: 13px 14px; color: var(--lime); font-size: 12px; white-space: nowrap; }
+.install-command button { border: 0; border-left: 1px solid #343a2e; background: #20251c; color: #d9f2a1; padding: 0 15px; font: 600 10px/1 "SFMono-Regular", monospace; }
+.install-command button:hover { background: #2c351d; color: var(--lime); }
+.install-links { display: grid; justify-items: end; gap: 6px; }
+.install-links a { color: var(--ink); font-size: 11px; text-underline-offset: 3px; }
+
 .workspace { display: grid; grid-template-columns: minmax(310px, .72fr) minmax(520px, 1.6fr); border: 1px solid var(--ink); background: var(--surface); min-height: 660px; }
 .connection-panel { padding: 29px; border-right: 1px solid var(--ink); display: flex; flex-direction: column; }
 .panel-heading { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 32px; }
@@ -134,6 +145,8 @@ footer span { color: #71840b; }
   .app-shell { padding: 0 20px; }
   .hero { grid-template-columns: 1fr; min-height: 0; padding: 45px 0 36px; }
   .hero-copy { max-width: 650px; }
+  .install-strip { grid-template-columns: 1fr; }
+  .install-links { grid-auto-flow: column; justify-content: start; justify-items: start; gap: 18px; }
   .workspace { grid-template-columns: 1fr; }
   .connection-panel { border-right: 0; border-bottom: 1px solid var(--ink); }
   .security-note { margin-top: 30px; }
@@ -143,6 +156,10 @@ footer span { color: #71840b; }
   .app-shell { padding: 0 12px; }
   .topbar { height: 68px; }
   .hero h1 { font-size: 40px; }
+  .install-strip { padding: 16px; gap: 15px; }
+  .install-command { grid-template-columns: 1fr; }
+  .install-command button { min-height: 38px; border-left: 0; border-top: 1px solid #343a2e; }
+  .install-links { grid-auto-flow: row; gap: 8px; }
   .connection-panel { padding: 22px 17px; }
   .terminal-toolbar { grid-template-columns: 52px 1fr; }
   .terminal-address { display: none; }

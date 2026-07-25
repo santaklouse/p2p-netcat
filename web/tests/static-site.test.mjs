@@ -83,6 +83,9 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.match(page, /Показывать отправленное/);
   assert.match(page, /entry\.direction === "received"/);
   assert.match(page, /p2p-netcat-show-sent/);
+  assert.match(page, /npm install --global p2p-netcat@latest/);
+  assert.match(page, /INSTALLATION\.RU\.md/);
+  assert.match(page, /navigator\.clipboard\.writeText/);
   assert.match(page, /Интерактивный PTY/);
   assert.match(page, /p2p-netcat-interactive/);
   assert.match(page, /lazy\(\(\) => import\("\.\/browser-terminal"\)\)/);
@@ -95,4 +98,5 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.match(styles, /\.terminal-echo-toggle/);
   assert.match(styles, /\.terminal-sent/);
   assert.match(styles, /\.browser-terminal/);
+  assert.match(styles, /\.install-strip/);
 });
