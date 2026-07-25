@@ -144,10 +144,10 @@ npm run dev
 После загрузки репозитория откройте **Settings → Pages** и выберите
 **Build and deployment → Source → GitHub Actions**. После следующего push в
 ветку `main` страница будет опубликована автоматически. Для репозитория
-`santaklouse/p2p-netcat-js` ожидаемый адрес:
+`santaklouse/p2p-netcat` ожидаемый адрес:
 
 ```text
-https://santaklouse.github.io/p2p-netcat-js/
+https://santaklouse.github.io/p2p-netcat/
 ```
 
 GitHub Pages предоставляет HTTPS, поэтому Service Worker, установка PWA,

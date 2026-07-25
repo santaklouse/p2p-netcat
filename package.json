@@ -1,6 +1,6 @@
 {
   "name": "@santaklouse/p2p-netcat",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "TCP/QUIC netcat-like CLI addressed by libp2p PeerId instead of IP",
   "type": "module",
   "workspaces": [
@@ -37,12 +37,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/santaklouse/p2p-netcat-js.git"
+    "url": "git+https://github.com/santaklouse/p2p-netcat.git"
   },
   "bugs": {
-    "url": "https://github.com/santaklouse/p2p-netcat-js/issues"
+    "url": "https://github.com/santaklouse/p2p-netcat/issues"
   },
-  "homepage": "https://github.com/santaklouse/p2p-netcat-js#readme",
+  "homepage": "https://github.com/santaklouse/p2p-netcat#readme",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"

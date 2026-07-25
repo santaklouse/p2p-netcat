@@ -3,7 +3,7 @@
 [English](README.md) | **Русский**
 
 Полная схема взаимодействия библиотеки с CLI и браузерным Worker описана в
-[`docs/ARCHITECTURE.RU.md`](https://github.com/santaklouse/p2p-netcat-js/blob/main/docs/ARCHITECTURE.RU.md).
+[`docs/ARCHITECTURE.RU.md`](https://github.com/santaklouse/p2p-netcat/blob/main/docs/ARCHITECTURE.RU.md).
 
 Общее browser-safe ядро `p2p-netcat`. Пакет не использует Node.js API и может
 импортироваться одновременно консольным приложением, Web Worker и другими

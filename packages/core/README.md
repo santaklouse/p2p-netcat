@@ -3,7 +3,7 @@
 **English** | [Русский](README.RU.md)
 
 The interaction between the library, CLI, and browser Worker is documented in
-[`docs/ARCHITECTURE.md`](https://github.com/santaklouse/p2p-netcat-js/blob/main/docs/ARCHITECTURE.md).
+[`docs/ARCHITECTURE.md`](https://github.com/santaklouse/p2p-netcat/blob/main/docs/ARCHITECTURE.md).
 
 The browser-safe shared core of `p2p-netcat`. The package does not use Node.js
 APIs and can be imported by the CLI, a Web Worker, and other JavaScript clients.

@@ -143,11 +143,11 @@ GitHub repository name, and publishes `web/dist`.
 
 After pushing the repository, open **Settings → Pages** and select
 **Build and deployment → Source → GitHub Actions**. The next push to `main`
-publishes the page automatically. For `santaklouse/p2p-netcat-js`, the expected
+publishes the page automatically. For `santaklouse/p2p-netcat`, the expected
 URL is:
 
 ```text
-https://santaklouse.github.io/p2p-netcat-js/
+https://santaklouse.github.io/p2p-netcat/
 ```
 
 GitHub Pages supplies HTTPS, allowing the Service Worker, PWA installation,
