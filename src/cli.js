@@ -191,7 +191,7 @@ async function runListener (target, serviceArgument, options) {
 
   const webRtcListener = options.webrtc === false
     ? null
-    : startWebRtcListener({
+    : await startWebRtcListener({
         privateKey,
         service,
         verbose: options.verbose,

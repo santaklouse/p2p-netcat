@@ -120,42 +120,43 @@ When the manual relay field is empty:
 Delegated Routing and DHT are sequential fallback layers. The dial attempts for
 the resulting candidate multiaddrs are the parallel part.
 
-Trystero/WebRTC runs in parallel with the complete libp2p branch. Server and
-client join a deterministic room derived from `PeerId + logical port`. Node.js
-races Nostr and BitTorrent signaling rooms; the browser uses the compatible
-BitTorrent room. Public relays and trackers carry SDP/ICE signaling only.
-Before application data is
-accepted, the client sends a random 32-byte challenge. The CLI server signs a
-domain-separated transcript with its persistent Ed25519 key; the client checks
-the signature and derives the expected PeerId from the supplied public key.
-The first authenticated libp2p or WebRTC channel cancels the losing attempt.
-Both branches share the connection timeout entered in the UI; the Worker
-enforces it around its complete cache, Delegated Routing, DHT, and dial
-sequence.
+Native WebRTC runs in parallel with the complete libp2p branch. Server and
+client derive a deterministic room from `PeerId + logical port`, hash it into a
+signaling topic, and race project-owned Nostr and WebTorrent tracker adapters.
+Public relays and trackers carry only SDP signaling. A Trystero compatibility
+attempt starts after four seconds if native WebRTC has not already won.
 
-Both Trystero adapters receive the same ICE configuration from the core
-package. It contains nine `stun:` URLs: five Google endpoints plus CounterPath,
-Sipgate, VoIPBuster, and InternetCalls. STUN exposes public NAT mappings to the
-WebRTC stack; no p2p-netcat payload is sent through a STUN server.
+Each connection attempt sends a random 32-byte challenge. The CLI server signs
+a domain-separated transcript with its persistent Ed25519 key; the client
+checks the signature and derives the exact requested PeerId from the supplied
+public key. The native listener exposes the application stream only after the
+client returns `AUTH_READY`. The first authenticated libp2p or WebRTC channel
+cancels the losing attempts. All branches use the connection timeout entered
+in the UI; the Worker enforces it around its complete cache, Delegated Routing,
+DHT, and dial sequence.
 
-The BitTorrent signaling strategy enables trickle ICE and connects to all
-trackers exported by the installed Trystero package. The Node.js adapter also
-opens five deterministic Nostr relays. Automatic signaling-socket reconnection
-remains active for the lifetime of a listener or connection attempt; it is
-paused only during intentional shutdown. Once authenticated, a 15-second
-`ping`/`pong` control exchange keeps an otherwise idle Trystero data channel
-active.
+All WebRTC paths receive the same ICE configuration from the core package. It
+contains nine `stun:` URLs: five Google endpoints plus CounterPath, Sipgate,
+VoIPBuster, and InternetCalls. STUN exposes public NAT mappings to the WebRTC
+stack; no p2p-netcat payload is sent through a STUN server.
 
-Trystero itself reports a peer leave after its WebRTC connection remains
-disconnected for five seconds. p2p-netcat does not translate that event into
-EOF immediately. `WebRtcStream` enters `reconnecting` for 120 seconds, keeps
-the async iterator open, and blocks bounded writes behind a peer-availability
-waiter. If the same Trystero peer ID joins the room again, the room action
-targets the replacement data channel and the existing logical stream resumes.
-The `resume` control frame clears stale flow credits. Explicit EOF, abort, room
-shutdown, or expiry of the grace period still finalizes the stream. This keeps
-the same `node-pty` process alive across transient ICE failures and ordinary
-browser background throttling.
+The native tracker adapter uses complete non-trickle SDP, maintains a bounded
+offer pool, and connects to several WebTorrent trackers. The independent Nostr
+adapter publishes short-lived signed events through several relays. Both
+deduplicate signaling and reconnect WebSockets with bounded exponential
+backoff. Once authenticated, a 15-second `ping`/`pong` control exchange keeps
+an otherwise idle data channel active. Trystero retains its trickle-ICE tracker
+strategy only for compatibility with published peers.
+
+When a native data channel closes unexpectedly, `WebRtcStream` enters
+`reconnecting` for 120 seconds, keeps the async iterator open, and blocks
+bounded writes behind a peer-availability waiter. The endpoint controller
+creates new offers with the same 20-character client-session identity and
+rebinds the replacement data channel to the existing logical stream. The
+`resume` control frame clears stale flow credits. Explicit EOF, abort, shutdown,
+or expiry of the grace period still finalizes the stream. This keeps the same
+`node-pty` process alive across transient ICE failures and ordinary browser
+background throttling.
 
 If a manual relay is supplied, automatic discovery is skipped. The core package
 requires a relay PeerId, WS/WSS transport, and WSS for an HTTPS page, then builds
@@ -226,7 +227,7 @@ gs-netcat-style adapter modes sit above the same authenticated stream. Client
 dialing the requested destination. Interactive `-i` frames PTY data and resize
 events, while `node-pty` owns the server pseudoterminal. The browser enables
 this framing explicitly, decodes it before UI delivery, renders ANSI with
-xterm, and sends keyboard and resize events through either libp2p or Trystero.
+xterm, and sends keyboard and resize events through either libp2p or WebRTC.
 Tor `-T` disables all
 direct and UDP discovery paths and re-executes a relay-only client under
 `torsocks`.

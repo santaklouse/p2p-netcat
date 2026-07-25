@@ -2,138 +2,133 @@
 
 [English](WEBRTC_MIGRATION.md) | **Русский**
 
-Цель миграции — удалить runtime-зависимости `@trystero-p2p/torrent` и
-`@trystero-p2p/nostr`, сохранив прямое WebRTC-соединение между CLI и браузером,
-автоматический поиск через публичную инфраструктуру и восстановление
-долгоживущих PTY-сессий.
+Теперь `p2p-netcat-core` владеет WebRTC-протоколом, контроллером соединения и
+двумя signaling-адаптерами для публичной инфраструктуры. Trystero больше не
+является основным путём. Он временно остаётся отложенным fallback совместимости
+до завершения длительных тестов native-пути между браузерами, Linux и macOS.
 
-Удаление зависимости не означает отказ от внешних signaling-узлов. Два
-компьютера за NAT не могут обменяться SDP и ICE-кандидатами, зная только PeerId,
-без какого-либо rendezvous-канала. p2p-netcat продолжит прозрачно использовать
-публичные WebTorrent trackers и Nostr relays, но клиентский протокол и WebRTC
-state machine будут принадлежать проекту.
+Отказ от Trystero не отменяет необходимость rendezvous-инфраструктуры. Два
+компьютера за NAT не могут обменяться SDP, зная только PeerId. Новый код
+прозрачно использует публичные Nostr relays и WebTorrent WebSocket trackers, но
+не требует серверов p2p-netcat или серверных скриптов.
 
-## Что уже перенесено в core
+## Текущее состояние
 
-`p2p-netcat-core` уже отвечает за:
+| Этап | Состояние |
+|---|---|
+| Независимый от signaling byte stream, flow control, EOF, keepalive и reconnect | Реализован в core |
+| Собственный контроллер `RTCPeerConnection` и ordered reliable `RTCDataChannel` | Реализован в core |
+| Подписанный Nostr signaling adapter | Реализован в core |
+| WebTorrent WebSocket tracker signaling adapter | Реализован в core |
+| Интеграция с CLI и статической PWA | Native запускается первым, Trystero — через четыре секунды |
+| Удаление Trystero npm dependencies | После длительных тестов в реальных сетях |
 
-- стабильный room ID из PeerId и логического порта;
-- подписанный PeerId challenge/response;
-- общий список STUN-серверов;
-- бинарный поток `WebRtcStream`;
-- окно backpressure 256 КиБ и `ack:<bytes>`;
-- `ping`/`pong`, EOF и abort;
-- 120-секундное окно восстановления;
-- namespaces `pnc-data-v1` и `pnc-ctl-v1`;
-- `createWebRtcActionHub()`, который связывает action room с потоками.
+Браузерное приложение по-прежнему состоит только из статических файлов для
+GitHub Pages. В Node.js `RTCPeerConnection` предоставляет `@roamhq/wrtc`, а
+браузер использует встроенную реализацию.
 
-Новые имена API не зависят от реализации signaling:
+## Алгоритм native-соединения
+
+1. Listener строит детерминированную room из постоянного PeerId и логического
+   порта.
+2. Обе стороны хешируют versioned room в необратимую signaling topic.
+3. Каждый процесс создаёт одну случайную 20-символьную signaling identity,
+   общую для Nostr и tracker adapters.
+4. Инициатор создаёт по одному non-trickle SDP offer для каждого адаптера.
+   Полный SDP выбран потому, что WebTorrent tracker переносит offer/answer, но
+   не произвольный поток ICE candidates.
+5. Первый ответ, открывший `p2p-netcat-v2`, запускает 32-байтовый challenge.
+6. Сервер подписывает domain-separated payload постоянным libp2p Ed25519-ключом.
+   Клиент восстанавливает PeerId и проверяет точное совпадение с запрошенным.
+7. Только после успешной проверки клиент отправляет `AUTH_READY`. Поэтому
+   непроверенный кандидат не может запустить PTY или прикладной поток listener.
+8. Побеждает первый аутентифицированный адаптер. Проигравшие Nostr/tracker
+   peer connections закрываются до передачи прикладных данных.
+9. При временной потере data channel тот же `WebRtcStream` и PTY сохраняются до
+   120 секунд. Reconnect привязывает новый data channel к прежнему потоку.
+
+Offer glare здесь отсутствует по конструкции: клиенты создают offer, listener
+только отвечает. Каждая повторная попытка получает уникальный session ID, а
+дубликаты из tracker/Nostr фильтруются до endpoint controller.
+
+## Native wire protocol
+
+Каждое сообщение `RTCDataChannel` бинарное:
+
+```text
++---------+------------+--------------------------+
+| version | frame type | payload                  |
++---------+------------+--------------------------+
+| 0x02    | 0x00       | байты приложения         |
+| 0x02    | 0x01       | UTF-8 stream control     |
+| 0x02    | 0x02       | authentication challenge |
+| 0x02    | 0x03       | public key + signature   |
+| 0x02    | 0x04       | authentication accepted  |
++---------+------------+--------------------------+
+```
+
+Stream control поддерживает `flow:1`, `ack:<bytes>`, `resume`, `ping`/`pong`,
+`eof` и `abort`. `RTCDataChannel.bufferedAmount` создаёт первую границу
+backpressure, а `WebRtcStream` добавляет сквозное окно 256 КиБ, чтобы быстрый
+вывод PTY не увеличивал память браузера без ограничения.
+
+## Signaling adapters
+
+### Nostr
+
+Адаптер открывает WebSocket к нескольким публичным relay, создаёт временный
+Schnorr-ключ и публикует подписанные events kind `25050`. Event содержит
+versioned room tag, принимается не старше 120 секунд и проверяется по
+каноническому event ID и подписи до обработки SDP. PeerId сервера всё равно
+проверяется внутри WebRTC: временный Nostr-ключ подтверждает только целостность
+signaling event.
+
+### WebTorrent trackers
+
+Адаптер выводит детерминированный 20-байтовый tracker `info_hash`, хранит
+ограниченный пул offer, адресует answer через `offer_id` и `to_peer_id`,
+периодически повторяет announce, удаляет дубликаты ответов и переподключается с
+exponential backoff. Пользовательские данные через tracker не проходят.
+
+## Публичный API core
 
 ```js
 import {
-  WEBRTC_APP_ID,
-  WEBRTC_RECONNECT_GRACE_MS,
+  NativeWebRtcPeer,
   WebRtcStream,
-  createWebRtcActionHub,
-  decodeWebRtcAuthResponse,
-  encodeWebRtcAuthResponse,
-  webRtcAuthPayload,
+  connectNativeWebRtc,
+  createNostrSignalingSession,
+  createSignalingPeerId,
+  createTorrentSignalingSession,
+  defaultRtcConfiguration,
+  startNativeWebRtcListener,
   webRtcRoomId
 } from 'p2p-netcat/core'
 ```
 
-Старые имена `TrysteroStream`, `trysteroRoomId()` и остальные Trystero-prefixed
-экспорты пока сохранены как aliases. Это позволяет обновить CLI и web независимо
-и не ломает существующих пользователей библиотеки.
+Те же exports доступны в отдельном пакете `p2p-netcat-core`. Signaling-функции
+принимают внедряемые конструкторы `WebSocket` и `RTCPeerConnection`, поэтому
+они browser-safe и тестируются без Node.js globals.
 
-## Что пока делает Trystero
+## Период совместимости
 
-После первого этапа от Trystero остаются только четыре обязанности:
+CLI listener сейчас открывает native adapters и legacy Trystero rooms. Клиент
+сразу запускает native signaling, а Trystero — только если native-канал не
+победил за четыре секунды. Общая client-session identity позволяет новому
+listener отклонить дублирующие native/legacy-каналы одного нового клиента.
 
-1. подключение WebSocket к публичным WebTorrent/Nostr signaling-узлам;
-2. публикация и получение SDP offer/answer и ICE candidates;
-3. управление `RTCPeerConnection` и `RTCDataChannel`;
-4. совместимый wire format для существующих опубликованных CLI/web версий.
+Trystero dependencies будут удалены после длительного прохождения матрицы:
 
-Передача пользовательских данных, flow control, EOF, keepalive, восстановление
-сессии и PeerId-аутентификация уже не должны зависеть от этих обязанностей.
-
-## Следующие этапы
-
-### 1. Собственный интерфейс signaling
-
-Core получит общий контракт:
-
-```ts
-export interface SignalingAdapter {
-  readonly name: string
-  connect(roomId: string, signal: AbortSignal): Promise<SignalingSession>
-}
-
-export interface SignalingSession {
-  publish(message: WebRtcSignal): Promise<void>
-  messages(): AsyncIterable<WebRtcSignal>
-  close(): Promise<void>
-}
-```
-
-Конкретный адаптер не имеет доступа к PTY или пользовательскому потоку. Он
-только передаёт короткоживущие signaling-сообщения.
-
-### 2. Собственный WebRTC session controller
-
-Controller создаёт `RTCPeerConnection`, обрабатывает glare по алгоритму perfect
-negotiation, упорядочивает trickle ICE candidates, открывает один ordered
-reliable `RTCDataChannel` и передаёт его в `WebRtcStream`.
-
-Node.js продолжит предоставлять WebRTC runtime через `@roamhq/wrtc`, а браузер
-будет использовать нативный `RTCPeerConnection`.
-
-### 3. WebTorrent tracker adapter
-
-Адаптер реализует WebSocket tracker announce:
-
-- SHA-1 info hash из versioned room namespace;
-- пул offer и уникальные `offer_id`;
-- адресованные answer;
-- повторный announce с ограниченным интервалом;
-- дедупликацию сообщений нескольких trackers;
-- reconnect с exponential backoff.
-
-Это обязательный путь для статической PWA на GitHub Pages.
-
-### 4. Nostr adapter
-
-Nostr остаётся независимым параллельным rendezvous:
-
-- ephemeral Schnorr identity;
-- подписанные NIP-01 events;
-- versioned room tag;
-- короткий срок жизни signaling events;
-- дедупликация по event ID;
-- одновременная работа с несколькими relays.
-
-### 5. Dual stack и удаление зависимости
-
-Во время перехода новая реализация и текущий Trystero adapter будут запускаться
-параллельно. Первый аутентифицированный канал побеждает, остальные закрываются.
-После soak-тестов dependency удаляется из `package.json` и web bundle.
-
-Перед удалением проверяются:
-
-- browser ↔ Linux CLI и macOS CLI ↔ Linux CLI;
-- разные страны и разные NAT;
+- browser → Linux CLI и macOS CLI → Linux CLI между разными странами;
 - Chrome, Firefox и Safari;
+- обычный, symmetric и restrictive NAT;
 - фоновые вкладки и сон/пробуждение;
-- непрерывный большой вывод PTY;
-- временная потеря сети до 120 секунд;
-- закрытие EOF/abort без зависших процессов;
-- отсутствие дублирующих сессий при одновременном Nostr/tracker discovery.
+- большой непрерывный вывод PTY в течение нескольких часов;
+- повторные потери и восстановления сети в пределах 120 секунд;
+- старый опубликованный client → новый listener и новый client → старый listener.
 
-## Почему не удалять Trystero одним коммитом
-
-WebRTC signaling чувствителен к гонкам ICE, повторным offer, закрытию
-WebSocket и особенностям браузеров. Мгновенная замена рабочей реализации без
-dual-stack периода противоречит главному требованию p2p-netcat — стабильности
-соединения. Поэтапная миграция позволяет сравнивать новый транспорт с текущим
-на реальных сетях и откатывать только signaling adapter, не теряя PTY-сессию.
+STUN обнаруживает NAT mapping, но не является relay. При symmetric NAT или
+заблокированном UDP всё ещё может потребоваться TURN либо настроенный libp2p
+Circuit Relay. Публичные relays и trackers принадлежат третьим сторонам: они
+видят signaling topics, время и SDP/ICE candidates, но не прикладные данные
+зашифрованного peer-to-peer channel. Они не гарантируют 100% доступность.

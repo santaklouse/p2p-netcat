@@ -20,6 +20,8 @@ JavaScript-клиентами.
 - общую тему и интервал PubSub discovery;
 - общий пул STUN-серверов WebRTC;
 - browser-safe кадрирование PTY-данных/resize и инкрементальное декодирование;
+- собственное бинарное кадрирование WebRTC и lifecycle `RTCPeerConnection`;
+- подписанные Nostr и WebTorrent tracker signaling adapters;
 - независимое от signaling сопоставление WebRTC actions;
 - согласованный flow control WebRTC с окном байтов, подтверждениями, keepalive,
   EOF, abort и восстановлением.
@@ -53,8 +55,15 @@ JavaScript-клиентами.
 | `webRtcAuthPayload(...)` | Строит подписываемый challenge с domain separation |
 | `encodeWebRtcAuthResponse(...)` | Кодирует публичный ключ и подпись |
 | `decodeWebRtcAuthResponse(...)` | Проверяет и декодирует ответ |
+| `signWebRtcAuthResponse(...)` | Подписывает challenge приватным ключом libp2p |
+| `verifyWebRtcAuthResponse(...)` | Проверяет подпись и точное совпадение запрошенного PeerId |
 | `WebRtcStream` | Адаптирует action-канал к потоку с backpressure, recovery и EOF |
 | `createWebRtcActionHub(room, options)` | Связывает data/control actions и lifecycle пира с общими потоками |
+| `NativeWebRtcPeer` | Управляет ordered reliable data channel и бинарным протоколом |
+| `createNostrSignalingSession(options)` | Открывает подписанный Nostr signaling для одной room |
+| `createTorrentSignalingSession(options)` | Открывает signaling через WebTorrent WebSocket trackers |
+| `startNativeWebRtcListener(options)` | Отвечает на offer и отдаёт аутентифицированные `WebRtcStream` |
+| `connectNativeWebRtc(options)` | Соревнуёт signaling sessions, проверяет PeerId и восстанавливает поток |
 
 Приоритет сортировки: WebRTC Direct, QUIC v1, WebTransport, WSS, WS, TCP,
 прочие адреса и Circuit Relay. Наличие позиции в общем рейтинге не означает,
@@ -81,10 +90,53 @@ flow credits. p2p-netcat по умолчанию использует
 `WEBRTC_RECONNECT_GRACE_MS` — 120 секунд. Явный EOF и `abort()` по-прежнему
 закрывают поток немедленно.
 
-Прежние `TrysteroStream`, `trysteroRoomId()`, authentication helpers и
-константы временно сохранены как aliases на период миграции. В новом коде нужно
-использовать независимые от реализации WebRTC-имена. Оставшаяся signaling-часть
-описана в [документе миграции](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.RU.md).
+Core теперь содержит native signaling adapters, SDP controller, бинарный
+протокол data channel и аутентифицированный endpoint controller. CLI и PWA
+используют эту реализацию первой. Прежние `TrysteroStream`,
+`trysteroRoomId()`, authentication helpers и константы сохранены как aliases,
+а сам Trystero временно запускается как отложенный compatibility fallback во
+время тестов в реальных сетях. В новом коде нужно использовать независимые от
+реализации WebRTC-имена. Протокол и критерии удаления зависимости описаны в
+[документе миграции](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.RU.md).
+
+Минимальный native client:
+
+```js
+import {
+  connectNativeWebRtc,
+  createNostrSignalingSession,
+  createSignalingPeerId,
+  createTorrentSignalingSession,
+  defaultRtcConfiguration,
+  verifyWebRtcAuthResponse,
+  webRtcRoomId
+} from 'p2p-netcat-core'
+
+export async function connectToP2pNetcat (targetPeerId, logicalPort = 31337) {
+  const roomId = webRtcRoomId(targetPeerId, logicalPort)
+  const signalingPeerId = createSignalingPeerId()
+  const signalingSessions = await Promise.all([
+    createNostrSignalingSession({ roomId, peerId: signalingPeerId, WebSocket }),
+    createTorrentSignalingSession({ roomId, peerId: signalingPeerId, WebSocket })
+  ])
+
+  const connection = connectNativeWebRtc({
+    signalingSessions,
+    RTCPeerConnection,
+    rtcConfig: defaultRtcConfiguration(),
+    verifyAuthResponse: (value, challenge) =>
+      verifyWebRtcAuthResponse(value, targetPeerId, logicalPort, challenge)
+  })
+
+  return {
+    stream: await connection.promise,
+    close: () => connection.close()
+  }
+}
+```
+
+Функция проверяет подписанный challenge именно для PeerId и логического порта,
+переданных вызывающим кодом.
 
 Если нужно только browser-safe ядро, установите отдельный пакет:
 

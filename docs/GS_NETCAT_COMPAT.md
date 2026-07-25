@@ -51,7 +51,7 @@ p2p-nc --bind 0.0.0.0 -p 2222 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfb
 ```
 
 Multi-connection `-p` uses multiplexed libp2p streams rather than the current
-single-stream Trystero adapter. When direct libp2p routing is unavailable, pass
+single-stream WebRTC adapter. When direct libp2p routing is unavailable, pass
 the same Circuit Relay to the forwarding server and client.
 
 ## SOCKS proxy: `-S`
@@ -120,7 +120,7 @@ Tor only carries TCP. To prevent a silent privacy bypass, `-T`:
 1. is accepted only in client mode;
 2. requires an explicit `--relay` multiaddr using TCP, WS, or WSS;
 3. rejects UDP/QUIC relay addresses;
-4. disables QUIC, Trystero/WebRTC, STUN, mDNS, PubSub, bootstrap, and DHT;
+4. disables QUIC, native/legacy WebRTC, STUN, mDNS, PubSub, bootstrap, and DHT;
 5. re-executes the complete client under `torsocks -i` for Tor circuit
    isolation.
 

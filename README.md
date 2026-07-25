@@ -35,8 +35,9 @@ Amino DHT, mDNS, and Circuit Relay v2.
 - Logical ports, allowing one PeerId to expose multiple services;
 - PeerId-only discovery through mDNS, signed GossipSub announcements, and the
   IPFS Amino DHT;
-- a direct Trystero/WebRTC fallback; Node.js races public Nostr relays and
-  WebTorrent trackers while the browser keeps the compatible WebTorrent path;
+- a project-owned direct WebRTC path that races signed public Nostr relays and
+  WebTorrent trackers in both Node.js and the browser;
+- a delayed Trystero fallback for compatibility with already published peers;
 - a shared nine-endpoint STUN pool for CLI and browser WebRTC NAT traversal;
 - bounded end-to-end flow control from `node-pty` through the transport and Web
   Worker to xterm;
@@ -228,18 +229,19 @@ Pages. In the repository settings, select **Settings → Pages → Source → Gi
 Actions**. The workflow automatically uses the repository subpath as Vite's
 base URL.
 
-The browser does not require a relay address by default. It starts two paths in
-parallel: Trystero/WebRTC through public WebTorrent trackers, and libp2p lookup
-through signed GossipSub announcements, HTTP Delegated Routing, and IPFS Amino
-DHT fallback. The first authenticated channel wins. Discovered libp2p
-multiaddrs are also raced.
+The browser does not require a relay address by default. It starts native
+WebRTC signaling through signed Nostr events and public WebTorrent trackers in
+parallel with libp2p lookup through signed GossipSub announcements, HTTP
+Delegated Routing, and IPFS Amino DHT fallback. A legacy Trystero attempt starts
+only if native WebRTC has not connected after four seconds. The first
+authenticated channel wins. Discovered libp2p multiaddrs are also raced.
 
 GossipSub discovery is enabled by default in CLI nodes, relays, and the browser
 Worker. Use `--no-pubsub` on the CLI or relay command to disable it. It is an
 additional discovery path, not a global rendezvous guarantee: both peers need
-connectivity to a compatible GossipSub mesh. Trystero uses the shared STUN pool
-to improve direct NAT traversal; STUN alone cannot replace TURN or Circuit
-Relay when both sides are behind restrictive NAT.
+connectivity to a compatible GossipSub mesh. Native WebRTC and its compatibility
+fallback use the shared STUN pool to improve direct NAT traversal; STUN alone
+cannot replace TURN or Circuit Relay when both sides are behind restrictive NAT.
 
 If the server advertises only TCP/QUIC addresses or automatic discovery cannot
 find a usable route, expand the advanced settings and provide a WebSocket relay:
@@ -382,8 +384,8 @@ p2p-nc relay --help
 4. The client searches known addresses, mDNS, signed GossipSub announcements,
    that provider record, and the DHT.
 5. With `--relay`, it builds a `relay/p2p-circuit/p2p/server` route.
-6. Without an explicit route, a direct Trystero/WebRTC channel is attempted in
-   parallel.
+6. Without an explicit route, native Nostr/WebTorrent WebRTC and libp2p lookup
+   run in parallel; delayed Trystero preserves compatibility with older peers.
 7. QUIC TLS 1.3, Noise, or a signed WebRTC challenge authenticates the PeerId.
 8. stdin/stdout or PTY frames are transferred with bounded backpressure. The
    browser acknowledges output only after xterm has rendered it.
@@ -411,12 +413,13 @@ QUIC streams, avoiding unnecessary HTTP request, header, and CONNECT semantics.
   option is to pass the same `--relay` to both the server and client.
 - WebRTC improves direct connectivity, but symmetric NAT or blocked UDP may
   still require TURN or Circuit Relay; public trackers provide no SLA.
-- Trystero uses all trackers bundled with its current BitTorrent strategy and
-  Node.js also races a Nostr signaling strategy. Both automatically reconnect,
-  but third-party infrastructure cannot guarantee 100% availability.
+- The native adapters connect to several public Nostr relays and WebTorrent
+  trackers and automatically reconnect. Trystero is currently retained only as
+  a delayed compatibility fallback. Third-party infrastructure cannot
+  guarantee 100% availability.
 - A backgrounded page can resume the same PTY while its JavaScript context
   remains alive. A browser that fully discards or reloads the page creates a
-  new ephemeral Trystero identity and therefore starts a new PTY session.
+  new ephemeral signaling identity and therefore starts a new PTY session.
 - PubSub improves discovery only after a node reaches a compatible mesh member;
   it is not a global rendezvous service.
 - An IPFS HTTP gateway is not a relay and cannot carry this protocol.

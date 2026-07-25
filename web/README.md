@@ -15,7 +15,8 @@ HTML, CSS, JavaScript, a Web Worker, a Service Worker, a manifest, and images.
 - connection to a CLI server by `PeerId` and logical port;
 - automatic lookup through signed GossipSub announcements, HTTP Delegated
   Routing, and IPFS Amino DHT;
-- direct Trystero/WebRTC fallback through public WebTorrent trackers;
+- project-owned direct WebRTC through signed Nostr events and public WebTorrent
+  trackers, with delayed Trystero compatibility fallback;
 - WebTransport or WebSocket/WSS through libp2p Circuit Relay v2;
 - an optional manual relay multiaddr as an emergency override;
 - Noise encryption and Yamux inside a dedicated Web Worker;
@@ -49,10 +50,12 @@ when the listener was started without `-i`.
 The Web Worker imports the browser-safe
 [`p2p-netcat-core`](https://www.npmjs.com/package/p2p-netcat-core) package also used by the CLI.
 Protocol IDs, PeerId and logical-port validation, the PTY codec, WS/WSS rules,
-and Circuit Relay dial-plan construction are shared. Delegated Routing, the DHT client,
-libp2p WebTransport/WebSocket transports, Trystero/WebRTC, Worker messaging,
-the terminal UI, and the PWA/Service Worker remain in the web project. This
-architecture runs no server-side JavaScript.
+and Circuit Relay dial-plan construction are shared. Core also owns native
+Nostr/tracker signaling, `RTCPeerConnection` lifecycle, data-channel framing,
+and WebRTC stream recovery. Delegated Routing, the DHT client, libp2p
+WebTransport/WebSocket transports, Worker messaging, the terminal UI, and the
+PWA/Service Worker remain in the web project. This architecture runs no
+server-side JavaScript.
 
 Large terminal output uses two bounded flow-control layers. The Worker stops
 reading a libp2p stream after 512 KiB is waiting in the UI and resumes below
@@ -65,21 +68,24 @@ remains the visible history.
 
 A WebRTC peer loss is not treated as PTY EOF immediately. The UI changes to
 `Reconnecting`, the server keeps the existing shell, and bounded writes wait
-for the same peer for up to 120 seconds. If Trystero rebuilds the WebRTC data
-channel during that window, the old stream and PTY continue. Merely changing
-window focus does not call `stop()`. A complete tab discard or page reload is
-different because it destroys the browser JavaScript context and its ephemeral
-Trystero peer identity.
+for the same peer for up to 120 seconds. If the native endpoint controller
+rebuilds the WebRTC data channel during that window, the old stream and PTY
+continue. Merely changing window focus does not call `stop()`. A complete tab
+discard or page reload is different because it destroys the browser JavaScript
+context and its ephemeral signaling identity.
 
-When the relay field is empty, Trystero/WebRTC and the Worker start
-simultaneously. The Worker listens for signed announcements on the app-specific
-GossipSub topic, resolves the PeerId through
+When the relay field is empty, native WebRTC and the Worker start
+simultaneously. Native WebRTC races signed Nostr events and WebTorrent tracker
+announces; Trystero starts after four seconds only as compatibility fallback.
+The Worker listens for signed announcements on the app-specific GossipSub
+topic and resolves the PeerId through
 `https://delegated-ipfs.dev/routing/v1`, and then uses DHT as a fallback. The
 first authenticated channel wins. A successful libp2p route is cached in
 IndexedDB for 24 hours. The WebRTC server proves the entered PeerId with a
 signed Ed25519 challenge. The timeout entered in the UI is one deadline for
-both the Worker/libp2p branch and Trystero, so a slow DHT query cannot keep the
-form blocked after the requested interval. `public/network-config.json` can add compatible
+the Worker/libp2p, native WebRTC, and compatibility branches, so a slow DHT
+query cannot keep the form blocked after the requested interval.
+`public/network-config.json` can add compatible
 routing endpoints and a hidden WSS relay pool without changing the UI:
 
 ```json
@@ -112,14 +118,15 @@ topic. Public generic IPFS bootstrap peers are not guaranteed to join or carry
 this application topic. A p2p-netcat relay participates in the topic by
 default, so an already reachable relay can also forward discovery messages.
 
-Trystero enables trickle ICE, uses every public WebTorrent tracker bundled with
-the installed strategy, and keeps automatic tracker reconnection enabled.
-After PeerId authentication, `ping`/`pong` control frames keep an idle data
-channel active. These measures improve discovery and session stability but do
-not turn public trackers or STUN into infrastructure with an availability
-guarantee.
+The native implementation uses full non-trickle SDP with several public
+WebTorrent trackers and signed, short-lived Nostr events through several
+relays. Both adapters deduplicate messages and reconnect automatically. After
+PeerId authentication, `ping`/`pong` control frames keep an idle data channel
+active. Trystero retains its trickle-ICE tracker path only for compatibility.
+These measures improve discovery and session stability but do not turn public
+trackers, relays, or STUN into infrastructure with an availability guarantee.
 
-Both browser and Node Trystero clients use this ICE/STUN pool:
+Both browser and Node.js WebRTC clients use this ICE/STUN pool:
 
 ```text
 stun:stun.l.google.com:19302

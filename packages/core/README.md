@@ -19,6 +19,8 @@ The package owns:
 - the application PubSub discovery topic and interval;
 - the common WebRTC STUN pool;
 - browser-safe PTY data/resize framing and incremental decoding;
+- project-owned WebRTC binary framing and `RTCPeerConnection` lifecycle;
+- signed Nostr and WebTorrent tracker signaling adapters;
 - signaling-independent WebRTC action mapping;
 - negotiated WebRTC byte-window flow control, acknowledgements, keepalive, EOF,
   abort, and reconnect semantics.
@@ -52,8 +54,15 @@ in platform-specific packages.
 | `webRtcAuthPayload(...)` | Builds a domain-separated signed challenge |
 | `encodeWebRtcAuthResponse(...)` | Encodes the public key and signature |
 | `decodeWebRtcAuthResponse(...)` | Validates and decodes the response |
+| `signWebRtcAuthResponse(...)` | Signs a challenge with a libp2p private key |
+| `verifyWebRtcAuthResponse(...)` | Verifies the signature and exact requested PeerId |
 | `WebRtcStream` | Adapts an action channel to backpressure, recovery, and EOF semantics |
 | `createWebRtcActionHub(room, options)` | Maps the data/control actions and peer lifecycle to shared streams |
+| `NativeWebRtcPeer` | Owns one ordered reliable data channel and its binary frame protocol |
+| `createNostrSignalingSession(options)` | Opens signed, room-scoped Nostr signaling |
+| `createTorrentSignalingSession(options)` | Opens WebTorrent WebSocket tracker signaling |
+| `startNativeWebRtcListener(options)` | Answers offers and exposes authenticated `WebRtcStream` instances |
+| `connectNativeWebRtc(options)` | Races signaling sessions, authenticates the PeerId, and reconnects the stream |
 
 The order is WebRTC Direct, QUIC v1, WebTransport, WSS, WS, TCP, other
 addresses, and Circuit Relay. A transport appearing in the common ranking does
@@ -80,11 +89,53 @@ credits. The default recovery window used by p2p-netcat is
 `WEBRTC_RECONNECT_GRACE_MS` (120 seconds). Explicit EOF and `abort()` still
 close immediately.
 
-The former `TrysteroStream`, `trysteroRoomId()`, authentication helpers, and
-constants remain aliases during the dependency migration. New code should use
-the implementation-neutral WebRTC names. See the
+Core now contains the native signaling adapters, SDP controller, binary
+data-channel protocol, and authenticated endpoint controller. The CLI and PWA
+use this implementation first. The former `TrysteroStream`,
+`trysteroRoomId()`, authentication helpers, and constants remain aliases, and
+Trystero itself is a delayed compatibility fallback during real-network soak
+testing. New code should use the implementation-neutral WebRTC names. See the
 [migration document](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.md)
-for the remaining signaling work.
+for the protocol and removal criteria.
+
+Minimal native client setup:
+
+```js
+import {
+  connectNativeWebRtc,
+  createNostrSignalingSession,
+  createSignalingPeerId,
+  createTorrentSignalingSession,
+  defaultRtcConfiguration,
+  verifyWebRtcAuthResponse,
+  webRtcRoomId
+} from 'p2p-netcat-core'
+
+export async function connectToP2pNetcat (targetPeerId, logicalPort = 31337) {
+  const roomId = webRtcRoomId(targetPeerId, logicalPort)
+  const signalingPeerId = createSignalingPeerId()
+  const signalingSessions = await Promise.all([
+    createNostrSignalingSession({ roomId, peerId: signalingPeerId, WebSocket }),
+    createTorrentSignalingSession({ roomId, peerId: signalingPeerId, WebSocket })
+  ])
+
+  const connection = connectNativeWebRtc({
+    signalingSessions,
+    RTCPeerConnection,
+    rtcConfig: defaultRtcConfiguration(),
+    verifyAuthResponse: (value, challenge) =>
+      verifyWebRtcAuthResponse(value, targetPeerId, logicalPort, challenge)
+  })
+
+  return {
+    stream: await connection.promise,
+    close: () => connection.close()
+  }
+}
+```
+
+The function verifies the signed challenge against the exact PeerId and logical
+port requested by the caller.
 
 Install the standalone browser-safe package when it is the only functionality
 needed:

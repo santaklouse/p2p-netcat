@@ -253,41 +253,42 @@ flowchart TD
 Delegated Routing и DHT являются последовательными fallback-уровнями. Именно
 проверка нескольких найденных multiaddr выполняется параллельно.
 
-Параллельно со всей libp2p-веткой запускается Trystero/WebRTC. Сервер и клиент
-входят в детерминированную room из `PeerId + логический порт`. Node.js
-параллельно пробует Nostr- и BitTorrent-signaling, браузер использует
-совместимую BitTorrent room. Публичные relay и trackers переносят только
-SDP/ICE signaling. До допуска канала
-к данным клиент отправляет случайный 32-байтовый challenge. CLI-сервер подписывает
-domain-separated transcript постоянным Ed25519-ключом; клиент проверяет подпись
-и выводит PeerId из переданного публичного ключа. Первый успешно
-аутентифицированный libp2p или WebRTC-канал отменяет проигравшую попытку.
-Обе ветки используют таймаут подключения, указанный в UI. Worker применяет его
+Параллельно со всей libp2p-веткой запускается native WebRTC. Сервер и клиент
+выводят детерминированную room из `PeerId + логический порт`, хешируют её в
+signaling topic и соревнуют собственные Nostr и WebTorrent tracker adapters.
+Публичные relay и trackers переносят только SDP signaling. Если native WebRTC
+не победил за четыре секунды, запускается Trystero compatibility attempt.
+
+Каждая попытка отправляет случайный 32-байтовый challenge. CLI-сервер
+подписывает domain-separated transcript постоянным Ed25519-ключом; клиент
+проверяет подпись и точное совпадение PeerId из переданного публичного ключа.
+Native listener отдаёт прикладной stream только после ответного `AUTH_READY`.
+Первый успешно аутентифицированный libp2p или WebRTC-канал отменяет проигравшие
+попытки. Все ветки используют таймаут подключения из UI. Worker применяет его
 ко всей последовательности cache, Delegated Routing, DHT и dial.
 
-Оба адаптера Trystero получают ICE-конфигурацию из общего core-пакета. В неё
-входят девять `stun:` URL: пять endpoint Google, а также CounterPath, Sipgate,
+Все WebRTC-пути получают ICE-конфигурацию из общего core-пакета. В неё входят
+девять `stun:` URL: пять endpoint Google, а также CounterPath, Sipgate,
 VoIPBuster и InternetCalls. STUN сообщает WebRTC публичный NAT mapping; данные
 p2p-netcat через STUN-сервер не передаются.
 
-BitTorrent-стратегия signaling включает trickle ICE и подключается ко всем
-trackers, экспортируемым установленным пакетом Trystero. Node.js-адаптер
-дополнительно открывает пять детерминированно выбранных Nostr relay.
-Автоматическое переподключение signaling-сокетов работает всё время жизни
-listener или попытки подключения и приостанавливается только при намеренной
-остановке. После аутентификации управляющий обмен `ping`/`pong` раз в 15 секунд
-поддерживает неактивный Trystero data channel.
+Native tracker adapter использует полный non-trickle SDP, хранит ограниченный
+offer pool и подключается к нескольким WebTorrent trackers. Независимый Nostr
+adapter публикует короткоживущие подписанные events через несколько relay. Оба
+удаляют дубликаты signaling и восстанавливают WebSocket с ограниченным
+exponential backoff. После аутентификации управляющий обмен `ping`/`pong` раз в
+15 секунд поддерживает неактивный data channel. Trystero сохраняет trickle-ICE
+tracker strategy только для совместимости с опубликованными peers.
 
-Сам Trystero сообщает об уходе peer, если WebRTC-соединение остаётся в состоянии
-`disconnected` пять секунд. p2p-netcat больше не превращает это событие в EOF
-немедленно. `WebRtcStream` переходит в `reconnecting` на 120 секунд, сохраняет
-async iterator открытым и останавливает ограниченную очередь записи на ожидании
-доступности peer. Когда тот же Trystero peer ID снова входит в room, action
-начинает использовать новый data channel, а существующий логический поток
-продолжается. Управляющий фрейм `resume` сбрасывает устаревшие flow credits.
-Явный EOF, abort, остановка room или истечение grace-периода по-прежнему
-завершают поток. Поэтому тот же процесс `node-pty` переживает временный ICE
-failure и обычный background throttling браузера.
+Когда native data channel неожиданно закрывается, `WebRtcStream` переходит в
+`reconnecting` на 120 секунд, сохраняет async iterator открытым и
+останавливает ограниченную очередь записи на ожидании доступности peer.
+Endpoint controller создаёт новые offer с той же 20-символьной client-session
+identity и привязывает новый data channel к существующему логическому потоку.
+Управляющий фрейм `resume` сбрасывает устаревшие flow credits. Явный EOF, abort,
+остановка или истечение grace-периода по-прежнему завершают поток. Поэтому тот
+же процесс `node-pty` переживает временный ICE failure и обычный background
+throttling браузера.
 
 ### Модель PubSub discovery
 
@@ -419,7 +420,7 @@ P2P-поток для каждого сокета. Listener `-d/-p` соедин
 PTY и изменение размера окна, а `node-pty` управляет псевдотерминалом сервера.
 Браузер включает это кадрирование явно, декодирует его до передачи в UI,
 обрабатывает ANSI через xterm и отправляет клавиатуру/resize через libp2p или
-Trystero. Tor `-T` отключает прямые и UDP/discovery-маршруты и повторно запускает
+WebRTC. Tor `-T` отключает прямые и UDP/discovery-маршруты и повторно запускает
 relay-only клиент через `torsocks`.
 
 ## 11. Режим выполнения команды
@@ -492,7 +493,8 @@ PeerId не содержит текущий IP-адрес. Поэтому абс
 - CLI через интернет: provider record и Amino DHT;
 - CLI, relay и браузер: подписанный GossipSub через уже доступную mesh;
 - браузер: кеш, GossipSub, Delegated Routing, затем Amino DHT;
-- CLI и браузер: параллельный Trystero/WebRTC через WebTorrent signaling;
+- CLI и браузер: native WebRTC через Nostr и WebTorrent signaling, с
+  отложенным Trystero compatibility fallback;
 - NAT/CGNAT: Circuit Relay v2;
 - точная диагностика: полный multiaddr или ручной relay.
 

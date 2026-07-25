@@ -1,11 +1,17 @@
-import { peerIdFromString } from '@libp2p/peer-id'
+import { publicKeyFromProtobuf, publicKeyToProtobuf } from '@libp2p/crypto/keys'
+import { peerIdFromPrivateKey, peerIdFromPublicKey, peerIdFromString } from '@libp2p/peer-id'
 import { multiaddr } from '@multiformats/multiaddr'
+
+export * from './native-webrtc.js'
+export * from './signaling.js'
+export * from './native-endpoint.js'
 
 export const APP_NAME = 'p2p-netcat'
 export const PROTOCOL_PREFIX = '/p2p-netcat/1.0.0'
 export const DEFAULT_SERVICE = 31337
 export const WEBRTC_APP_ID = 'io.github.santaklouse.p2p-netcat.v1'
 export const WEBRTC_AUTH_VERSION = 1
+export const WEBRTC_CLIENT_ID_BYTES = 20
 export const PUBSUB_DISCOVERY_TOPIC = 'io.github.santaklouse.p2p-netcat.peer-discovery.v1'
 export const PUBSUB_DISCOVERY_INTERVAL_MS = 10_000
 export const WEBRTC_RECONNECT_GRACE_MS = 120_000
@@ -205,6 +211,45 @@ export function webRtcAuthPayload (peerId, service, challenge) {
   payload.set(context)
   payload.set(nonce, context.byteLength)
   return payload
+}
+
+export function createWebRtcClientChallenge (clientId) {
+  const normalizedClientId = String(clientId ?? '').trim()
+  if (!/^[0-9A-Za-z]{20}$/.test(normalizedClientId)) {
+    throw new Error('WebRTC client ID must contain exactly 20 alphanumeric characters')
+  }
+  const challenge = crypto.getRandomValues(new Uint8Array(32))
+  challenge.set(new TextEncoder().encode(normalizedClientId))
+  return challenge
+}
+
+export function webRtcClientIdFromChallenge (challenge) {
+  const value = asBytes(challenge)
+  if (value.byteLength !== 32) return null
+  const clientId = new TextDecoder().decode(value.subarray(0, WEBRTC_CLIENT_ID_BYTES))
+  return /^[0-9A-Za-z]{20}$/.test(clientId) ? clientId : null
+}
+
+export async function signWebRtcAuthResponse (privateKey, service, challenge) {
+  if (privateKey == null || typeof privateKey.sign !== 'function' || privateKey.publicKey == null) {
+    throw new TypeError('A libp2p private key is required')
+  }
+  const peerId = peerIdFromPrivateKey(privateKey).toString()
+  return encodeWebRtcAuthResponse(
+    publicKeyToProtobuf(privateKey.publicKey),
+    await privateKey.sign(webRtcAuthPayload(peerId, service, challenge))
+  )
+}
+
+export async function verifyWebRtcAuthResponse (value, expectedPeerId, service, challenge) {
+  const normalizedPeerId = normalizePeerId(expectedPeerId)
+  const response = decodeWebRtcAuthResponse(value)
+  const publicKey = publicKeyFromProtobuf(response.publicKey)
+  if (peerIdFromPublicKey(publicKey).toString() !== normalizedPeerId) return false
+  return publicKey.verify(
+    webRtcAuthPayload(normalizedPeerId, service, challenge),
+    response.signature
+  )
 }
 
 export function encodeWebRtcAuthResponse (publicKey, signature) {

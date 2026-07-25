@@ -1,10 +1,16 @@
 import type { Multiaddr } from "@multiformats/multiaddr";
+import type { PrivateKey } from "@libp2p/interface";
+
+export * from "./native-webrtc.js";
+export * from "./signaling.js";
+export * from "./native-endpoint.js";
 
 export const APP_NAME: "p2p-netcat";
 export const PROTOCOL_PREFIX: "/p2p-netcat/1.0.0";
 export const DEFAULT_SERVICE: 31337;
 export const WEBRTC_APP_ID: "io.github.santaklouse.p2p-netcat.v1";
 export const WEBRTC_AUTH_VERSION: 1;
+export const WEBRTC_CLIENT_ID_BYTES: 20;
 export const PUBSUB_DISCOVERY_TOPIC: "io.github.santaklouse.p2p-netcat.peer-discovery.v1";
 export const PUBSUB_DISCOVERY_INTERVAL_MS: 10000;
 export const WEBRTC_RECONNECT_GRACE_MS: 120000;
@@ -71,6 +77,10 @@ export function preferDialAddresses(a: AddressLike, b: AddressLike): number;
 export function browserDialableAddress(address: AddressLike, options?: { secureContext?: boolean }): boolean;
 export function webRtcRoomId(peerId: unknown, service?: unknown): string;
 export function webRtcAuthPayload(peerId: unknown, service: unknown, challenge: ArrayBuffer | ArrayBufferView): Uint8Array;
+export function createWebRtcClientChallenge(clientId: string): Uint8Array;
+export function webRtcClientIdFromChallenge(challenge: ArrayBuffer | ArrayBufferView): string | null;
+export function signWebRtcAuthResponse(privateKey: PrivateKey, service: unknown, challenge: ArrayBuffer | ArrayBufferView): Promise<Uint8Array>;
+export function verifyWebRtcAuthResponse(value: ArrayBuffer | ArrayBufferView, expectedPeerId: unknown, service: unknown, challenge: ArrayBuffer | ArrayBufferView): Promise<boolean>;
 export function encodeWebRtcAuthResponse(publicKey: ArrayBuffer | ArrayBufferView, signature: ArrayBuffer | ArrayBufferView): Uint8Array;
 export function decodeWebRtcAuthResponse(value: ArrayBuffer | ArrayBufferView): Readonly<{ publicKey: Uint8Array; signature: Uint8Array }>;
 export const trysteroRoomId: typeof webRtcRoomId;

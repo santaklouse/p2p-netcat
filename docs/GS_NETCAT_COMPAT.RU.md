@@ -50,7 +50,7 @@ p2p-nc --bind 0.0.0.0 -p 2222 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfb
 ```
 
 Многосеансовый `-p` использует мультиплексированные libp2p-потоки, а не текущий
-однопоточный адаптер Trystero. Если прямой libp2p-маршрут недоступен, передайте
+однопоточный WebRTC-адаптер. Если прямой libp2p-маршрут недоступен, передайте
 один Circuit Relay серверу forwarding и клиенту.
 
 ## SOCKS proxy: `-S`
@@ -119,7 +119,7 @@ Tor переносит только TCP. Чтобы исключить неза�
 1. разрешён только в client mode;
 2. требует явный `--relay` multiaddr с TCP, WS или WSS;
 3. отклоняет UDP/QUIC relay-адреса;
-4. отключает QUIC, Trystero/WebRTC, STUN, mDNS, PubSub, bootstrap и DHT;
+4. отключает QUIC, native/legacy WebRTC, STUN, mDNS, PubSub, bootstrap и DHT;
 5. повторно запускает весь клиент через `torsocks -i`, получая отдельный Tor
    circuit.
 

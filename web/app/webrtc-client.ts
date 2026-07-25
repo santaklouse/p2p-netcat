@@ -7,7 +7,9 @@ import {
   WEBRTC_APP_ID,
   WEBRTC_RECONNECT_GRACE_MS,
   WebRtcStream,
+  createWebRtcClientChallenge,
   createWebRtcActionHub,
+  createSignalingPeerId,
   decodeWebRtcAuthResponse,
   defaultRtcConfiguration,
   webRtcAuthPayload,
@@ -38,7 +40,12 @@ export class BrowserWebRtcClient {
     this.events = events;
   }
 
-  async connect(targetPeerId: string, logicalPort: number, timeoutMs = 30_000) {
+  async connect(
+    targetPeerId: string,
+    logicalPort: number,
+    timeoutMs = 30_000,
+    signalingPeerId = createSignalingPeerId(),
+  ) {
     if (typeof RTCPeerConnection === "undefined") throw new Error("WebRTC не поддерживается этим браузером");
     const roomId = webRtcRoomId(targetPeerId, logicalPort);
 
@@ -54,7 +61,7 @@ export class BrowserWebRtcClient {
       handshakeTimeoutMs: 12_000,
       onPeerHandshake: async (remoteId, send, receive) => {
         this.events.onLog(`WebRTC: найден кандидат ${remoteId}, проверяем PeerId`);
-        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        const challenge = createWebRtcClientChallenge(signalingPeerId);
         await send(challenge);
         const response = decodeWebRtcAuthResponse(bytes((await receive()).data));
         const publicKey = publicKeyFromProtobuf(response.publicKey);

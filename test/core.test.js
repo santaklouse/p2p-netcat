@@ -5,20 +5,68 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateKeyPair, publicKeyFromProtobuf, publicKeyToProtobuf } from '@libp2p/crypto/keys'
 import { peerIdFromPrivateKey, peerIdFromPublicKey } from '@libp2p/peer-id'
+import wrtc from '@roamhq/wrtc'
 import { createP2PNode, protectPubsubPeerDiscovery } from '../src/node.js'
 import { loadOrCreateIdentity } from '../src/identity.js'
 import { startRelay } from 'p2p-netcat/relay'
 import { protocolForService as protocolFromCliSubpath } from 'p2p-netcat/core'
 import {
   createWebRtcActionHub,
+  connectNativeWebRtc,
   decodeWebRtcAuthResponse,
   encodeWebRtcAuthResponse,
   preferDialAddresses,
   protocolForService,
   relayedTargetAddress,
+  startNativeWebRtcListener,
   webRtcAuthPayload,
   validateService
 } from 'p2p-netcat-core'
+
+class MemorySignalingBus {
+  sessions = new Set()
+
+  createSession (name, peerId) {
+    const bus = this
+    const listeners = new Set()
+    const session = {
+      name,
+      peerId,
+      topic: 'memory-native-webrtc-topic',
+      ready: Promise.resolve(),
+      subscribe (listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async publish (message) {
+        const signal = Object.freeze({
+          version: 2,
+          room: session.topic,
+          from: session.peerId,
+          createdAt: Date.now(),
+          ...message
+        })
+        for (const target of bus.sessions) {
+          if (target === session) continue
+          queueMicrotask(() => target.emit(signal))
+        }
+      },
+      status () {
+        return { name, open: 1, connecting: 0, total: 1 }
+      },
+      async close () {
+        bus.sessions.delete(session)
+        listeners.clear()
+      },
+      emit (message) {
+        if (message.to != null && message.to !== peerId) return
+        for (const listener of listeners) listener(message)
+      }
+    }
+    this.sessions.add(session)
+    return session
+  }
+}
 
 test('логический порт валидируется и преобразуется в protocol id', () => {
   assert.equal(validateService('8080'), 8080)
@@ -154,6 +202,108 @@ test('общий WebRTC action hub сохраняет тот же поток п�
   await hub.close()
   assert.equal(leaveCount, 1)
   assert.equal(stream.status, 'closed')
+})
+
+test('native WebRTC endpoint аутентифицирует PeerId и передаёт бинарный поток без Trystero', async () => {
+  const privateKey = await generateKeyPair('Ed25519')
+  const serverPeerId = peerIdFromPrivateKey(privateKey).toString()
+  const service = 31337
+  const bus = new MemorySignalingBus()
+  const serverSignaling = bus.createSession('Memory signaling', 'SERVER12345678901234')
+  const clientSignaling = bus.createSession('Memory signaling', 'CLIENT12345678901234')
+  const peerConnections = []
+  function TrackingRTCPeerConnection (configuration) {
+    const connection = new wrtc.RTCPeerConnection(configuration)
+    peerConnections.push(connection)
+    return connection
+  }
+  let resolveServerStream
+  const serverStreamPromise = new Promise(resolve => {
+    resolveServerStream = resolve
+  })
+  let resolveServerReconnected
+  const serverReconnectedPromise = new Promise(resolve => {
+    resolveServerReconnected = resolve
+  })
+  let resolveClientReconnected
+  const clientReconnectedPromise = new Promise(resolve => {
+    resolveClientReconnected = resolve
+  })
+  let resolveServerClosed
+  const serverClosedPromise = new Promise(resolve => {
+    resolveServerClosed = resolve
+  })
+  const listener = startNativeWebRtcListener({
+    signalingSessions: [serverSignaling],
+    RTCPeerConnection: TrackingRTCPeerConnection,
+    rtcConfig: { iceServers: [] },
+    createAuthResponse: async challenge => encodeWebRtcAuthResponse(
+      publicKeyToProtobuf(privateKey.publicKey),
+      await privateKey.sign(webRtcAuthPayload(serverPeerId, service, challenge))
+    ),
+    onStream: stream => resolveServerStream(stream),
+    onPeerReconnected: (_remoteId, stream) => resolveServerReconnected(stream),
+    onStreamClosed: (_remoteId, stream) => resolveServerClosed(stream)
+  })
+  const connection = connectNativeWebRtc({
+    signalingSessions: [clientSignaling],
+    RTCPeerConnection: TrackingRTCPeerConnection,
+    rtcConfig: { iceServers: [] },
+    timeoutMs: 10_000,
+    reconnectGraceMs: 10_000,
+    onReconnected: stream => resolveClientReconnected(stream),
+    verifyAuthResponse: async (value, challenge) => {
+      const response = decodeWebRtcAuthResponse(value)
+      const publicKey = publicKeyFromProtobuf(response.publicKey)
+      if (peerIdFromPublicKey(publicKey).toString() !== serverPeerId) return false
+      return publicKey.verify(webRtcAuthPayload(serverPeerId, service, challenge), response.signature)
+    }
+  })
+
+  try {
+    const [clientStream, serverStream] = await Promise.all([
+      connection.promise,
+      serverStreamPromise
+    ])
+    const clientReader = clientStream[Symbol.asyncIterator]()
+    const serverReader = serverStream[Symbol.asyncIterator]()
+    const clientPayload = Uint8Array.from([0, 42, 255, 10])
+    clientStream.send(clientPayload)
+    await clientStream.onDrain()
+    assert.deepEqual((await serverReader.next()).value, clientPayload)
+
+    const serverPayload = Uint8Array.from([9, 8, 7])
+    serverStream.send(serverPayload)
+    await serverStream.onDrain()
+    assert.deepEqual((await clientReader.next()).value, serverPayload)
+    assert.equal(clientStream.signalingStrategy, 'Memory signaling')
+
+    peerConnections[0].close()
+    let reconnectTimer
+    const reconnectTimeout = new Promise((_, reject) => {
+      reconnectTimer = setTimeout(
+        () => reject(new Error('Native WebRTC reconnect timeout')),
+        10_000
+      )
+    })
+    const [reconnectedClientStream, reconnectedServerStream] = await Promise.race([
+      Promise.all([clientReconnectedPromise, serverReconnectedPromise]),
+      reconnectTimeout
+    ]).finally(() => clearTimeout(reconnectTimer))
+    assert.equal(reconnectedClientStream, clientStream)
+    assert.equal(reconnectedServerStream, serverStream)
+
+    const resumedPayload = Uint8Array.from([11, 22, 33, 44])
+    clientStream.send(resumedPayload)
+    await clientStream.onDrain()
+    assert.deepEqual((await serverReader.next()).value, resumedPayload)
+    await Promise.allSettled([clientReader.return(), serverReader.return()])
+    await connection.close()
+    assert.equal(await serverClosedPromise, serverStream)
+    assert.equal(serverStream.status, 'closed')
+  } finally {
+    await Promise.allSettled([connection.close(), listener.close()])
+  }
 })
 
 test('два локальных узла передают двунаправленный бинарный поток', async () => {

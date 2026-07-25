@@ -36,9 +36,9 @@ Relay v2.
 - логические порты: один PeerId может предоставлять разные сервисы;
 - поиск только по PeerId через mDNS, подписанные GossipSub-объявления и IPFS
   Amino DHT;
-- прямой Trystero/WebRTC fallback: Node.js параллельно использует публичные
-  Nostr relay и WebTorrent trackers, а браузер сохраняет совместимый
-  WebTorrent-путь;
+- собственный прямой WebRTC-путь, который и в Node.js, и в браузере параллельно
+  использует подписанные события публичных Nostr relay и WebTorrent trackers;
+- отложенный Trystero fallback для совместимости с уже опубликованными peers;
 - общий пул из девяти STUN endpoint для WebRTC NAT traversal в CLI и браузере;
 - ограниченный сквозной flow control от `node-pty` через транспорт и Web Worker
   до xterm;
@@ -228,17 +228,19 @@ npm run build
 Actions**; workflow сам учтёт подпуть репозитория при сборке Vite.
 
 По умолчанию relay-адрес в браузере не требуется. Клиент параллельно запускает
-два пути: Trystero/WebRTC через публичные WebTorrent trackers и libp2p-поиск
-через подписанные GossipSub-объявления, HTTP Delegated Routing и IPFS Amino DHT.
-Побеждает первый аутентифицированный канал. Найденные libp2p multiaddr также
-проверяются параллельно.
+native WebRTC signaling через подписанные Nostr events и публичные WebTorrent
+trackers, а также libp2p-поиск через подписанные GossipSub-объявления, HTTP
+Delegated Routing и IPFS Amino DHT. Legacy Trystero запускается только если
+native WebRTC не подключился за четыре секунды. Побеждает первый
+аутентифицированный канал. Найденные libp2p multiaddr также проверяются
+параллельно.
 
 GossipSub discovery по умолчанию включён в CLI-узлах, relay и браузерном Worker.
 В CLI и relay его можно выключить опцией `--no-pubsub`. Это дополнительный путь
 поиска, а не глобальная гарантия rendezvous: обоим пирам нужна связность с
-совместимой GossipSub mesh. Trystero использует общий STUN-пул для улучшения
-прямого NAT traversal, но один STUN не заменяет TURN или Circuit Relay, если обе
-стороны находятся за жёстким NAT.
+совместимой GossipSub mesh. Native WebRTC и compatibility fallback используют
+общий STUN-пул для улучшения прямого NAT traversal, но один STUN не заменяет
+TURN или Circuit Relay, если обе стороны находятся за жёстким NAT.
 
 Если у сервера опубликованы только TCP/QUIC-адреса или автоматический поиск не
 нашёл маршрут, можно раскрыть дополнительные настройки и явно указать
@@ -382,7 +384,8 @@ p2p-nc relay --help
 4. Клиент ищет PeerId через известные адреса, mDNS, подписанный GossipSub,
    provider record или DHT.
 5. При `--relay` строится маршрут `relay/p2p-circuit/p2p/server`.
-6. Без явного маршрута одновременно пробуется прямой Trystero/WebRTC-канал.
+6. Без явного маршрута параллельно запускаются native Nostr/WebTorrent WebRTC
+   и libp2p-поиск; отложенный Trystero сохраняет совместимость со старыми peers.
 7. QUIC TLS 1.3, Noise или подписанный WebRTC challenge аутентифицирует PeerId.
 8. stdin/stdout или PTY-фреймы передаются с ограниченным backpressure. Браузер
    подтверждает вывод только после его отрисовки в xterm.
@@ -411,13 +414,13 @@ libp2p QUIC-потоки без лишних HTTP-запросов, заголо
   надёжный вариант — передать одинаковый `--relay` серверу и клиенту.
 - WebRTC увеличивает шанс прямого соединения, но symmetric NAT и блокировка UDP
   могут потребовать TURN или Circuit Relay; публичные trackers не дают SLA.
-- Trystero использует все trackers, входящие в текущую BitTorrent-стратегию, и
-  в Node.js параллельно пробует Nostr signaling. Оба способа автоматически
-  переподключаются, но сторонняя инфраструктура не может гарантировать 100%
-  доступность.
+- Native adapters подключаются к нескольким публичным Nostr relay и WebTorrent
+  trackers и автоматически восстанавливают signaling. Trystero временно
+  сохранён только как отложенный compatibility fallback. Сторонняя
+  инфраструктура не гарантирует 100% доступность.
 - Свёрнутая или фоновая страница продолжит тот же PTY, пока браузер сохраняет
   её JavaScript-контекст. Полная выгрузка вкладки из памяти или reload создаёт
-  новую временную Trystero identity, поэтому такой клиент начнёт новый PTY.
+  новую временную signaling identity, поэтому такой клиент начнёт новый PTY.
 - PubSub улучшает discovery только после подключения к участнику совместимой
   mesh и не является глобальным rendezvous-сервисом.
 - IPFS HTTP gateway не является relay и не может переносить этот протокол.

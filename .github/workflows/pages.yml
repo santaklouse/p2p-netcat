@@ -16,6 +16,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.5.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install CLI and core dependencies
+        run: npm ci
+
+      - name: Check JavaScript
+        run: npm run lint
+
+      - name: Test CLI and core
+        run: npm test
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +89,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs:
+      - test
+      - build
     steps:
       - name: Deploy GitHub Pages
         id: deployment

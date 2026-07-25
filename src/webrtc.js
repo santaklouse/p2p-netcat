@@ -17,17 +17,27 @@ import {
 import {
   WEBRTC_APP_ID,
   WEBRTC_RECONNECT_GRACE_MS,
+  connectNativeWebRtc,
+  createNostrSignalingSession,
+  createSignalingPeerId,
+  createTorrentSignalingSession,
+  createWebRtcClientChallenge,
   createWebRtcActionHub,
   defaultRtcConfiguration,
   decodeWebRtcAuthResponse,
   encodeWebRtcAuthResponse,
+  signWebRtcAuthResponse,
+  startNativeWebRtcListener,
+  verifyWebRtcAuthResponse,
   webRtcAuthPayload,
+  webRtcClientIdFromChallenge,
   webRtcRoomId
 } from 'p2p-netcat-core'
 
 const { RTCPeerConnection } = wrtc
 const RELAY_STATUS_DELAY_MS = 1_500
 const SEARCH_PROGRESS_INTERVAL_MS = 5_000
+const LEGACY_FALLBACK_DELAY_MS = 4_000
 
 const SIGNALING_STRATEGIES = [
   {
@@ -63,6 +73,33 @@ function bytes (value) {
   if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
   throw new Error('WebRTC signaling передал данные неизвестного типа')
+}
+
+function nativeStatusLog (verbose, status) {
+  if (!verbose || !['open', 'error', 'closed'].includes(status.state)) return
+  const detail = status.detail == null ? '' : ` (${status.detail})`
+  verboseLog(true, `WebRTC/${status.adapter}: ${status.url}: ${status.state}${detail}`)
+}
+
+async function createNativeSessions (roomId, signalingPeerId, verbose) {
+  const options = {
+    roomId,
+    peerId: signalingPeerId,
+    WebSocket: globalThis.WebSocket,
+    onStatus: status => nativeStatusLog(verbose, status)
+  }
+  const results = await Promise.allSettled([
+    createNostrSignalingSession(options),
+    createTorrentSignalingSession(options)
+  ])
+  const sessions = results
+    .filter(result => result.status === 'fulfilled')
+    .map(result => result.value)
+  for (const result of results) {
+    if (result.status === 'rejected') verboseLog(verbose, `WebRTC/native signaling не запущен: ${result.reason?.message ?? result.reason}`)
+  }
+  if (sessions.length === 0) throw new Error('Не удалось запустить собственный WebRTC signaling')
+  return sessions
 }
 
 function roomConfig (strategy) {
@@ -149,12 +186,14 @@ function startStrategyListener ({
   onStreamClosed,
   verbose
 }) {
+  const authenticatedRemoteIds = new Map()
   const joined = joinStrategyRoom(strategy, roomId, {
     handshakeTimeoutMs: 12_000,
     onPeerHandshake: async (remoteId, send, receive) => {
       verboseLog(verbose, `WebRTC/${strategy.label}: найден кандидат ${remoteId}, подписываю проверочный запрос`)
       const request = await receive()
       const challenge = bytes(request.data)
+      authenticatedRemoteIds.set(remoteId, webRtcClientIdFromChallenge(challenge) ?? remoteId)
       const signature = await privateKey.sign(webRtcAuthPayload(peerId, service, challenge))
       await send(encodeWebRtcAuthResponse(publicKeyToProtobuf(privateKey.publicKey), signature))
       verboseLog(verbose, `WebRTC/${strategy.label}: проверочный ответ отправлен кандидату ${remoteId}`)
@@ -167,33 +206,38 @@ function startStrategyListener ({
   const hub = createWebRtcActionHub(joined.room, {
     release: joined.release,
     onPeerDisconnected: (remoteId, stream) => {
+      const logicalRemoteId = authenticatedRemoteIds.get(remoteId) ?? remoteId
       verboseLog(
         verbose,
         `WebRTC/${strategy.label}: канал ${remoteId} потерян; сохраняю сессию ${WEBRTC_RECONNECT_GRACE_MS / 1000} с для переподключения`
       )
-      onStreamClosed?.(remoteId, stream, { temporary: true })
+      onStreamClosed?.(logicalRemoteId, stream, { temporary: true })
     },
     onPeerReconnected: (remoteId, stream) => {
+      const logicalRemoteId = authenticatedRemoteIds.get(remoteId) ?? remoteId
       watchPeerConnection(joined.room, remoteId, strategy, verbose)
       verboseLog(verbose, `WebRTC/${strategy.label}: канал ${remoteId} восстановлен, продолжаю прежнюю сессию`)
-      onStream?.(stream, remoteId, strategy, { reconnected: true })
+      onStream?.(stream, logicalRemoteId, strategy, { reconnected: true })
     },
     onStreamClosed: (remoteId, stream) => {
+      const logicalRemoteId = authenticatedRemoteIds.get(remoteId) ?? remoteId
       if (stream.connectionStatus === 'disconnected') {
         verboseLog(verbose, `WebRTC/${strategy.label}: срок ожидания ${remoteId} истёк, сессия закрыта`)
       }
-      onStreamClosed?.(remoteId, stream)
+      authenticatedRemoteIds.delete(remoteId)
+      onStreamClosed?.(logicalRemoteId, stream)
     },
     onStream: (stream, remoteId) => {
+      const logicalRemoteId = authenticatedRemoteIds.get(remoteId) ?? remoteId
       watchPeerConnection(joined.room, remoteId, strategy, verbose)
-      onStream(stream, remoteId, strategy)
+      onStream(stream, logicalRemoteId, strategy)
     }
   })
   verboseLog(verbose, `WebRTC/${strategy.label}: слушаю room для ${peerId}:${service}`)
   return hub
 }
 
-export function startWebRtcListener ({ privateKey, service, onStream, verbose = false }) {
+function startLegacyWebRtcListener ({ privateKey, service, onStream, onClosed, verbose = false }) {
   const peerId = peerIdFromPrivateKey(privateKey).toString()
   const roomId = webRtcRoomId(peerId, service)
   const activeStreams = new Map()
@@ -226,6 +270,7 @@ export function startWebRtcListener ({ privateKey, service, onStream, verbose = 
   const onStreamClosed = (remoteId, stream, { temporary = false } = {}) => {
     if (temporary) return
     if (activeStreams.get(remoteId) === stream) activeStreams.delete(remoteId)
+    onClosed?.(remoteId, stream)
   }
 
   for (const strategy of SIGNALING_STRATEGIES) {
@@ -261,7 +306,7 @@ export function startWebRtcListener ({ privateKey, service, onStream, verbose = 
   }
 }
 
-function connectWithStrategy ({ strategy, peerId, service, roomId, timeoutMs, verbose }) {
+function connectWithStrategy ({ strategy, peerId, service, roomId, timeoutMs, verbose, signalingPeerId }) {
   let settled = false
   let rejectAttempt
   let timeout
@@ -271,7 +316,7 @@ function connectWithStrategy ({ strategy, peerId, service, roomId, timeoutMs, ve
     handshakeTimeoutMs: 12_000,
     onPeerHandshake: async (remoteId, send, receive) => {
       verboseLog(verbose, `WebRTC/${strategy.label}: найден кандидат ${remoteId}, проверяю PeerId`)
-      const challenge = crypto.getRandomValues(new Uint8Array(32))
+      const challenge = createWebRtcClientChallenge(signalingPeerId)
       await send(challenge)
       const response = decodeWebRtcAuthResponse((await receive()).data)
       const publicKey = publicKeyFromProtobuf(response.publicKey)
@@ -339,7 +384,7 @@ function connectWithStrategy ({ strategy, peerId, service, roomId, timeoutMs, ve
   }
 }
 
-export function connectWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = false }) {
+function connectLegacyWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = false, signalingPeerId = createSignalingPeerId() }) {
   const roomId = webRtcRoomId(peerId, service)
   const attempts = []
   let closed = false
@@ -347,7 +392,7 @@ export function connectWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = 
   verboseLog(verbose, 'WebRTC: запускаю параллельный поиск через Nostr и BitTorrent signaling')
   for (const strategy of SIGNALING_STRATEGIES) {
     try {
-      attempts.push(connectWithStrategy({ strategy, peerId, service, roomId, timeoutMs, verbose }))
+      attempts.push(connectWithStrategy({ strategy, peerId, service, roomId, timeoutMs, verbose, signalingPeerId }))
       verboseLog(verbose, `WebRTC/${strategy.label}: подключаюсь к публичным relay-узлам`)
     } catch (error) {
       verboseLog(verbose, `WebRTC/${strategy.label}: signaling не запущен: ${error.message}`)
@@ -409,6 +454,198 @@ export function connectWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = 
   }
 }
 
+export async function startWebRtcListener ({ privateKey, service, onStream, verbose = false }) {
+  const peerId = peerIdFromPrivateKey(privateKey).toString()
+  const roomId = webRtcRoomId(peerId, service)
+  const signalingPeerId = createSignalingPeerId()
+  const listeners = []
+  const activeStreams = new Map()
+
+  const acceptStream = (stream, remoteId, strategy) => {
+    const current = activeStreams.get(remoteId)
+    if (current === stream) {
+      Object.defineProperty(stream, 'signalingStrategy', {
+        configurable: true,
+        value: strategy
+      })
+      return
+    }
+    if (current != null && current !== stream) {
+      verboseLog(verbose, `WebRTC/${strategy}: закрываю дублирующий канал ${remoteId}`)
+      stream.abort(new Error('Другой WebRTC signaling-канал уже установил соединение'))
+      return
+    }
+    activeStreams.set(remoteId, stream)
+    Object.defineProperty(stream, 'signalingStrategy', {
+      configurable: true,
+      value: strategy
+    })
+    onStream?.(stream, remoteId, strategy)
+  }
+  const forgetStream = (remoteId, stream) => {
+    if (activeStreams.get(remoteId) === stream) activeStreams.delete(remoteId)
+  }
+
+  try {
+    const signalingSessions = await createNativeSessions(roomId, signalingPeerId, verbose)
+    listeners.push(startNativeWebRtcListener({
+      signalingSessions,
+      RTCPeerConnection,
+      rtcConfig: defaultRtcConfiguration(),
+      createAuthResponse: challenge => signWebRtcAuthResponse(privateKey, service, challenge),
+      onStream: (stream, remoteId, strategy) => {
+        verboseLog(verbose, `WebRTC/${strategy}: собственный прямой канал установлен с ${remoteId}`)
+        acceptStream(stream, remoteId, strategy)
+      },
+      onStreamClosed: forgetStream,
+      onPeerDisconnected: remoteId => {
+        verboseLog(verbose, `WebRTC/native: канал ${remoteId} потерян; жду восстановление до ${WEBRTC_RECONNECT_GRACE_MS / 1000} с`)
+      },
+      onPeerReconnected: (remoteId, stream, strategy) => {
+        verboseLog(verbose, `WebRTC/${strategy}: канал ${remoteId} восстановлен`)
+        acceptStream(stream, remoteId, strategy)
+      },
+      onState: (strategy, remoteId, state) => {
+        verboseLog(verbose, `WebRTC/${strategy}: ${remoteId}: connection=${state.connectionState}, ICE=${state.iceConnectionState}`)
+      },
+      onLog: message => verboseLog(verbose, `WebRTC/native: ${message}`)
+    }))
+    verboseLog(verbose, 'WebRTC: собственный Nostr/BitTorrent signaling запущен')
+  } catch (error) {
+    verboseLog(verbose, `WebRTC/native: listener не запущен: ${error.message}`)
+  }
+
+  try {
+    listeners.push(startLegacyWebRtcListener({
+      privateKey,
+      service,
+      verbose,
+      onStream: acceptStream,
+      onClosed: forgetStream
+    }))
+    verboseLog(verbose, 'WebRTC/Trystero: временный fallback совместимости запущен')
+  } catch (error) {
+    verboseLog(verbose, `WebRTC/Trystero: fallback не запущен: ${error.message}`)
+  }
+
+  if (listeners.length === 0) throw new Error('Не удалось запустить ни один WebRTC listener')
+
+  return {
+    async close () {
+      activeStreams.clear()
+      await Promise.allSettled(listeners.map(listener => listener.close()))
+    }
+  }
+}
+
+export function connectWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = false }) {
+  const roomId = webRtcRoomId(peerId, service)
+  const signalingPeerId = createSignalingPeerId()
+  const attempts = []
+  let legacyAttempt
+  let legacyTimer
+  let closed = false
+  let rejectDelayedLegacy
+
+  const nativeAttempt = {
+    strategy: { label: 'Native Nostr/BitTorrent' },
+    connection: null,
+    promise: (async () => {
+      const signalingSessions = await createNativeSessions(roomId, signalingPeerId, verbose)
+      if (closed) {
+        await Promise.allSettled(signalingSessions.map(session => session.close()))
+        throw new Error('WebRTC-подключение отменено')
+      }
+      nativeAttempt.connection = connectNativeWebRtc({
+        signalingSessions,
+        RTCPeerConnection,
+        rtcConfig: defaultRtcConfiguration(),
+        timeoutMs,
+        verifyAuthResponse: async (value, challenge) => {
+          const valid = await verifyWebRtcAuthResponse(value, peerId, service, challenge)
+          if (!valid) throw new Error('некорректная подпись PeerId')
+          verboseLog(verbose, `WebRTC/native: PeerId ${peerId} подтверждён`)
+          return true
+        },
+        onReconnecting: () => verboseLog(
+          verbose,
+          `WebRTC/native: канал потерян; жду переподключение до ${WEBRTC_RECONNECT_GRACE_MS / 1000} с`
+        ),
+        onReconnected: (_stream, strategy) => verboseLog(verbose, `WebRTC/${strategy}: канал восстановлен`),
+        onState: (strategy, remoteId, state) => verboseLog(
+          verbose,
+          `WebRTC/${strategy}: ${remoteId}: connection=${state.connectionState}, ICE=${state.iceConnectionState}`
+        ),
+        onLog: message => verboseLog(verbose, `WebRTC/native: ${message}`)
+      })
+      return nativeAttempt.connection.promise
+    })(),
+    async close () {
+      await nativeAttempt.connection?.close()
+    }
+  }
+  attempts.push(nativeAttempt)
+  verboseLog(verbose, 'WebRTC/native: ищу пир через собственные Nostr и BitTorrent adapters')
+
+  const fallbackDelayMs = Math.min(LEGACY_FALLBACK_DELAY_MS, Math.max(500, Math.floor(timeoutMs / 4)))
+  const delayedLegacy = {
+    strategy: { label: 'Trystero fallback' },
+    promise: new Promise((resolve, reject) => {
+      rejectDelayedLegacy = reject
+      legacyTimer = setTimeout(() => {
+        legacyTimer = undefined
+        if (closed) {
+          reject(new Error('Trystero fallback отменён'))
+          return
+        }
+        verboseLog(verbose, `WebRTC/Trystero: native-канал не найден за ${fallbackDelayMs / 1000} с, запускаю fallback`)
+        legacyAttempt = connectLegacyWebRtc({
+          peerId,
+          service,
+          timeoutMs: Math.max(1_000, timeoutMs - fallbackDelayMs),
+          verbose,
+          signalingPeerId
+        })
+        legacyAttempt.promise.then(resolve, reject)
+      }, fallbackDelayMs)
+      legacyTimer.unref?.()
+    }),
+    async close () {
+      if (legacyTimer != null) {
+        clearTimeout(legacyTimer)
+        legacyTimer = undefined
+        rejectDelayedLegacy?.(new Error('Trystero fallback отменён'))
+      }
+      await legacyAttempt?.close()
+    }
+  }
+  delayedLegacy.promise.catch(() => {})
+  attempts.push(delayedLegacy)
+
+  const promise = Promise.any(attempts.map(attempt => (
+    attempt.promise.then(stream => ({ attempt, stream }))
+  ))).then(async ({ attempt: winner, stream }) => {
+    await Promise.allSettled(attempts.filter(attempt => attempt !== winner).map(attempt => attempt.close()))
+    verboseLog(verbose, `WebRTC: выбран ${winner.strategy.label}`)
+    return stream
+  }).catch(error => {
+    if (closed) throw new Error('WebRTC-подключение отменено', { cause: error })
+    const reasons = error instanceof AggregateError
+      ? error.errors.map(item => item.message).join('; ')
+      : error.message
+    throw new Error(`WebRTC не нашёл ${peerId}:${service}: ${reasons}`, { cause: error })
+  })
+
+  return {
+    promise,
+    async close () {
+      if (closed) return
+      closed = true
+      await Promise.allSettled(attempts.map(attempt => attempt.close()))
+    }
+  }
+}
+
 export const createTrysteroHub = createWebRtcActionHub
-export const startTrysteroListener = startWebRtcListener
-export const connectTrystero = connectWebRtc
+export const startTrysteroListener = startLegacyWebRtcListener
+export const connectTrystero = connectLegacyWebRtc
