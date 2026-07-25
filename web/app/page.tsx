@@ -1,6 +1,6 @@
 import { FormEvent, Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { BrowserTerminalHandle } from "./browser-terminal";
-import { getLanguageUrl, getPageLanguage, uiText } from "./i18n";
+import { getLanguageUrl, getPageLanguage, localizeDiagnostic, uiText } from "./i18n";
 import { BrowserP2PClient } from "./p2p-client";
 
 const BrowserTerminal = lazy(() => import("./browser-terminal"));
@@ -47,7 +47,12 @@ export default function Home() {
   const addLog = (text: string, kind: "info" | "success" | "error" = "info") => {
     setLogs((current) => [
       ...current.slice(-99),
-      { id: Date.now() + Math.random(), time: new Date().toLocaleTimeString(copy.locale), message: text, kind },
+      {
+        id: Date.now() + Math.random(),
+        time: new Date().toLocaleTimeString(copy.locale),
+        message: localizeDiagnostic(text, language),
+        kind,
+      },
     ]);
   };
 

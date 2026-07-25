@@ -159,3 +159,146 @@ export function getLanguageUrl(language: Language) {
   else url.searchParams.delete("lang");
   return `${url.pathname}${url.search}${url.hash}`;
 }
+
+const englishDiagnosticPatterns: ReadonlyArray<readonly [RegExp, string]> = [
+  [
+    /WebRTC: найден кандидат (.+), проверяем PeerId/,
+    "WebRTC: found candidate $1; verifying PeerId",
+  ],
+  [
+    /WebRTC peer предъявил другой PeerId: (.+)/,
+    "The WebRTC peer presented a different PeerId: $1",
+  ],
+  [
+    /WebRTC: PeerId (.+) подтверждён/,
+    "WebRTC: PeerId $1 verified",
+  ],
+  [
+    /WebRTC не нашёл (.+) за (\d+) с/,
+    "WebRTC did not find $1 within $2 s",
+  ],
+  [
+    /WebRTC-канал временно потерян; сохраняем PTY и ждём переподключение до (\d+) с/,
+    "WebRTC channel temporarily lost; preserving the PTY and waiting up to $1 s for reconnection",
+  ],
+  [
+    /WebRTC-канал восстановлен через (.+)/,
+    "WebRTC channel restored through $1",
+  ],
+  [
+    /Сетевой конфиг недоступен, используем встроенный: (.+)/,
+    "Network config unavailable; using the built-in config: $1",
+  ],
+  [
+    /DHT не вернула браузерный адрес: (.+)/,
+    "The DHT did not return a browser-compatible address: $1",
+  ],
+  [
+    /Браузерный PeerId: (.+)/,
+    "Browser PeerId: $1",
+  ],
+  [
+    /Используем указанный relay для (.+)/,
+    "Using the specified relay for $1",
+  ],
+  [
+    /Ищем (.+) через подписанный PubSub, delegated routing и IPFS DHT/,
+    "Searching for $1 through signed PubSub, delegated routing, and the IPFS DHT",
+  ],
+  [
+    /Пропущен некорректный relay из network-config\.json: (.+)/,
+    "Skipped an invalid relay from network-config.json: $1",
+  ],
+  [
+    /Найдено браузерных маршрутов: (\d+); выбираем самый быстрый/,
+    "Found $1 browser-compatible routes; selecting the fastest",
+  ],
+  [
+    /Канал (.+) открыт/,
+    "Channel $1 opened",
+  ],
+  [
+    /libp2p не установил соединение за (\d+) с/,
+    "libp2p did not establish a connection within $1 s",
+  ],
+  [
+    /Логический порт должен быть целым числом от 1 до 65535, получено: (.+)/,
+    "The logical port must be an integer from 1 to 65535; received: $1",
+  ],
+  [
+    /Адрес relay должен содержать \/p2p\/PeerId: (.+)/,
+    "The relay address must contain /p2p/PeerId: $1",
+  ],
+];
+
+const englishDiagnosticFragments: ReadonlyArray<readonly [string, string]> = [
+  ["Web Crypto API недоступен.", "Web Crypto API is unavailable."],
+  ["Откройте приложение по HTTPS, а не по HTTP.", "Open the application over HTTPS, not HTTP."],
+  ["IndexedDB недоступна", "IndexedDB is unavailable"],
+  ["Не удалось прочитать кеш маршрутов", "Could not read the route cache"],
+  ["Не удалось записать кеш маршрутов", "Could not write the route cache"],
+  ["Нет доступных браузеру маршрутов", "No browser-compatible routes are available"],
+  ["Выбран более быстрый маршрут", "A faster route was selected"],
+  ["Все найденные браузерные маршруты отклонены", "All discovered browser-compatible routes were rejected"],
+  ["Сетевой стек запускается в Web Worker", "Starting the network stack in a Web Worker"],
+  ["Соединение уже открыто", "A connection is already open"],
+  ["Проверяем ранее работавший маршрут", "Checking the previously successful route"],
+  ["Сохранённый маршрут устарел; запускаем новый поиск", "The saved route is stale; starting a new search"],
+  [
+    "PeerId найден не был или у него нет WSS/WebTransport/relay-адреса.",
+    "The PeerId was not found or it has no WSS, WebTransport, or relay address.",
+  ],
+  [
+    "Откройте дополнительные настройки и укажите relay multiaddr.",
+    "Open the advanced settings and provide a relay multiaddr.",
+  ],
+  ["Таймаут подключения должен быть положительным целым числом", "The connection timeout must be a positive integer"],
+  ["Сначала установите соединение", "Establish a connection first"],
+  ["Запись в канал уже закрыта", "The channel write side is already closed"],
+  ["Удалённая сторона завершила передачу", "The remote peer finished sending data"],
+  ["Соединение закрыто пользователем", "The connection was closed by the user"],
+  ["EOF отправлен; канал остаётся открытым для приёма", "EOF sent; the channel remains open for receiving"],
+  ["Ошибка сетевого Web Worker", "Network Web Worker error"],
+  ["Web Worker остановлен", "Web Worker stopped"],
+  ["Клиент уже остановлен", "The client has already stopped"],
+  ["Выбран указанный libp2p relay", "Selected the specified libp2p relay"],
+  [
+    "WebRTC: собственный signaling пока не нашёл пир; запускаем Trystero fallback",
+    "WebRTC: native signaling has not found the peer yet; starting the Trystero fallback",
+  ],
+  ["Trystero fallback отменён", "The Trystero fallback was cancelled"],
+  ["Выбран libp2p IPFS-маршрут", "Selected the libp2p IPFS route"],
+  ["Выбран собственный прямой WebRTC-канал", "Selected the native direct WebRTC channel"],
+  ["Выбран WebRTC через Trystero fallback", "Selected WebRTC through the Trystero fallback"],
+  ["Ни один транспорт не установил соединение:", "No transport established a connection:"],
+  ["P2P-канал ещё не открыт", "The P2P channel is not open yet"],
+  ["Ошибка PTY-протокола:", "PTY protocol error:"],
+  ["WebRTC signaling вернул данные неизвестного типа", "WebRTC signaling returned data of an unknown type"],
+  ["WebRTC не поддерживается этим браузером", "WebRTC is not supported by this browser"],
+  ["WebSocket signaling не поддерживается этим браузером", "WebSocket signaling is not supported by this browser"],
+  ["Некорректная подпись WebRTC PeerId", "Invalid WebRTC PeerId signature"],
+  ["WebRTC handshake отклонён:", "WebRTC handshake rejected:"],
+  ["WebRTC-канал восстановлен; продолжаем прежнюю сессию", "WebRTC channel restored; continuing the existing session"],
+  ["WebRTC-подключение уже завершено", "The WebRTC connection attempt has already finished"],
+  ["WebRTC-канал не открыт", "The WebRTC channel is not open"],
+  ["WebRTC-подключение отменено", "The WebRTC connection was cancelled"],
+  ["WebRTC-соединение закрыто пользователем", "The WebRTC connection was closed by the user"],
+  ["Собственный WebRTC signaling не запущен:", "Native WebRTC signaling did not start:"],
+  ["WebRTC: собственный поиск через Nostr и BitTorrent signaling", "WebRTC: native discovery through Nostr and BitTorrent signaling"],
+  ["PeerId не указан", "PeerId is required"],
+  ["Multiaddr не указан", "Multiaddr is required"],
+  ["Браузеру нужен WebSocket relay-адрес с /ws или /wss", "The browser requires a WebSocket relay address with /ws or /wss"],
+  ["HTTPS-страница может подключаться только к защищённому /wss relay", "An HTTPS page can connect only to a secure /wss relay"],
+];
+
+export function localizeDiagnostic(message: string, language: Language) {
+  if (language === "ru") return message;
+  let localized = message;
+  for (const [pattern, replacement] of englishDiagnosticPatterns) {
+    localized = localized.replace(pattern, replacement);
+  }
+  for (const [source, replacement] of englishDiagnosticFragments) {
+    localized = localized.replaceAll(source, replacement);
+  }
+  return localized;
+}

@@ -94,7 +94,10 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(localization, /languageLink: "Русская версия"/);
   assert.match(localization, /languageLink: "English version"/);
   assert.match(localization, /get\("lang"\) === "ru"/);
+  assert.match(localization, /export function localizeDiagnostic/);
+  assert.match(localization, /Starting the network stack in a Web Worker/);
   assert.match(page, /getLanguageUrl\(alternateLanguage\)/);
+  assert.match(page, /localizeDiagnostic\(text, language\)/);
   assert.doesNotMatch(page, /!targetPeerId \|\| !relayAddress/);
   assert.match(main, /location\.hostname\.endsWith\("\.github\.io"\)/);
   assert.match(main, /window\.location\.replace\(secureUrl\)/);
