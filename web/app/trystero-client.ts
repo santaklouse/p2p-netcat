@@ -10,7 +10,7 @@ import {
   defaultRtcConfiguration,
   trysteroAuthPayload,
   trysteroRoomId,
-} from "@santaklouse/p2p-netcat-core";
+} from "p2p-netcat-core";
 import type { ClientEvents } from "./p2p-client";
 
 const DATA_ACTION = "pnc-data-v1";

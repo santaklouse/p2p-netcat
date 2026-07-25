@@ -7,7 +7,7 @@ import { generateKeyPair, publicKeyFromProtobuf, publicKeyToProtobuf } from '@li
 import { peerIdFromPrivateKey, peerIdFromPublicKey } from '@libp2p/peer-id'
 import { createP2PNode } from '../src/node.js'
 import { loadOrCreateIdentity } from '../src/identity.js'
-import { startRelay } from '@santaklouse/p2p-netcat/relay'
+import { startRelay } from 'p2p-netcat/relay'
 import {
   decodeTrysteroAuthResponse,
   encodeTrysteroAuthResponse,
@@ -16,7 +16,7 @@ import {
   relayedTargetAddress,
   trysteroAuthPayload,
   validateService
-} from '@santaklouse/p2p-netcat-core'
+} from 'p2p-netcat-core'
 
 test('логический порт валидируется и преобразуется в protocol id', () => {
   assert.equal(validateService('8080'), 8080)

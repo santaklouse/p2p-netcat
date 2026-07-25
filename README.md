@@ -15,11 +15,13 @@ Amino DHT, mDNS, and Circuit Relay v2.
 - [Browser PWA guide](web/README.md) — build, GitHub Pages,
   `network-config.json`, and WSS relay configuration;
 - [Shared JavaScript library API](packages/core/README.md) — exported functions
-  from `@santaklouse/p2p-netcat-core`;
+  from `p2p-netcat-core`;
 - [Programmatic Circuit Relay API](docs/RELAY_API.md) — start and stop a relay
-  from another Node.js application through `@santaklouse/p2p-netcat/relay`.
+  from another Node.js application through `p2p-netcat/relay`.
 - [gs-netcat-compatible modes](docs/GS_NETCAT_COMPAT.md) — `-d`, `-p`, `-q`,
   `-S`, `-T`, and `-i`, including forwarding, SOCKS, PTY, and Tor routing.
+- [Publishing guide](docs/PUBLISHING.md) — release order, npm verification,
+  and clean-install checks for the CLI, core, and prebuilt web PWA.
 
 ## What already works
 
@@ -52,7 +54,7 @@ npm may require Python, `make`, and a C/C++ compiler for `node-gyp`.
 Install the published CLI from npm:
 
 ```bash
-npm install --global @santaklouse/p2p-netcat
+npm install --global p2p-netcat
 ```
 
 For development from source:
@@ -162,7 +164,7 @@ The same relay can be embedded into another Node.js process without spawning
 the CLI:
 
 ```js
-import { startRelay } from '@santaklouse/p2p-netcat/relay'
+import { startRelay } from 'p2p-netcat/relay'
 
 const relay = await startRelay({
   identityPath: './data/p2p-netcat-relay.key',
@@ -232,7 +234,7 @@ WSS, typically through a TLS reverse proxy on port 443. See
 ## Shared JavaScript library
 
 Logic that must behave identically in the CLI and browser lives in the local
-[`@santaklouse/p2p-netcat-core`](packages/core) npm package. It uses no Node.js APIs and
+[`p2p-netcat-core`](packages/core) npm package. It uses no Node.js APIs and
 owns logical-port and protocol-ID rules, PeerId/multiaddr validation, WS/WSS
 relay validation, Circuit Relay route planning, and transport preference.
 
@@ -243,7 +245,7 @@ lifecycle belong to `web`. This gives future discovery and fallback strategies
 one shared interface instead of two diverging implementations.
 
 ```js
-import { createRelayDialPlan, protocolForService } from '@santaklouse/p2p-netcat-core'
+import { createRelayDialPlan, protocolForService } from 'p2p-netcat-core'
 
 const protocol = protocolForService(31337)
 const plan = createRelayDialPlan({
@@ -290,7 +292,7 @@ p2p-nc -i 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
 
 Before connecting the browser client to this listener, enable
 **Interactive PTY -i**. The web terminal renders ANSI and forwards keyboard and
-resize events through the shared `@santaklouse/p2p-netcat-core` PTY codec.
+resize events through the shared `p2p-netcat-core` PTY codec.
 
 `-q` suppresses diagnostics on stderr without changing application bytes.
 `-T` re-executes the client under `torsocks`, disables direct QUIC/WebRTC and

@@ -5,18 +5,18 @@
 Node.js-пакет предоставляет отдельную точку входа relay:
 
 ```js
-import { startRelay } from '@santaklouse/p2p-netcat/relay'
+import { startRelay } from 'p2p-netcat/relay'
 ```
 
 Эта точка входа работает только в Node.js. Она не входит в браузерно-безопасный
-пакет `@santaklouse/p2p-netcat-core`.
+пакет `p2p-netcat-core`.
 
 ## Установка
 
 После публикации текущей версии пакета:
 
 ```bash
-npm install @santaklouse/p2p-netcat
+npm install p2p-netcat
 ```
 
 Внутри этого репозитория npm workspaces разрешают ту же точку входа без
@@ -25,7 +25,7 @@ npm install @santaklouse/p2p-netcat
 ## Полный пример
 
 ```js
-import { startRelay } from '@santaklouse/p2p-netcat/relay'
+import { startRelay } from 'p2p-netcat/relay'
 
 const announce = (process.env.P2P_RELAY_ANNOUNCE ?? '')
   .split(',')

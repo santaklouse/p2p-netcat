@@ -5,18 +5,18 @@
 The Node.js package exposes a dedicated relay entrypoint:
 
 ```js
-import { startRelay } from '@santaklouse/p2p-netcat/relay'
+import { startRelay } from 'p2p-netcat/relay'
 ```
 
 This entrypoint is Node-only. It is not part of the browser-safe
-`@santaklouse/p2p-netcat-core` package.
+`p2p-netcat-core` package.
 
 ## Installation
 
 After publishing the current package version:
 
 ```bash
-npm install @santaklouse/p2p-netcat
+npm install p2p-netcat
 ```
 
 Inside this repository, npm workspaces resolve the same entrypoint without an
@@ -25,7 +25,7 @@ additional package installation.
 ## Complete example
 
 ```js
-import { startRelay } from '@santaklouse/p2p-netcat/relay'
+import { startRelay } from 'p2p-netcat/relay'
 
 const announce = (process.env.P2P_RELAY_ANNOUNCE ?? '')
   .split(',')

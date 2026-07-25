@@ -18,7 +18,7 @@ import {
   PUBSUB_DISCOVERY_TOPIC,
   normalizeRelayAddress,
   preferDialAddresses
-} from '@santaklouse/p2p-netcat-core'
+} from 'p2p-netcat-core'
 import { APP_VERSION, IPFS_BOOTSTRAP_PEERS } from './constants.js'
 
 export async function createP2PNode ({

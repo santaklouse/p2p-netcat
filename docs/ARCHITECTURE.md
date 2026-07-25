@@ -25,7 +25,7 @@ reachable multiaddr.
 ```mermaid
 flowchart TB
     UI["Terminal or browser UI"] --> ADAPTER["CLI adapter or Web Worker"]
-    ADAPTER --> CORE["@santaklouse/p2p-netcat-core"]
+    ADAPTER --> CORE["p2p-netcat-core"]
     ADAPTER --> LIBP2P["libp2p node"]
     CORE --> LIBP2P
     LIBP2P --> NET["TCP / QUIC / WSS / WebTransport / Circuit Relay"]
@@ -221,7 +221,7 @@ unless the peer is locally reachable.
 | `packages/core/src/index.js` | Validation, protocol IDs, PTY codec, relay plans, discovery constants, STUN pool |
 | `src/identity.js` | CLI Ed25519 identity storage |
 | `src/node.js` | Node.js libp2p and signed PubSub discovery construction |
-| `src/relay.js` | Public `@santaklouse/p2p-netcat/relay` lifecycle API |
+| `src/relay.js` | Public `p2p-netcat/relay` lifecycle API |
 | `src/discovery.js` | CLI DHT publication and PeerId resolution |
 | `src/forwarding.js` | TCP forwarding, SOCKS4/4a/5, and local listeners |
 | `src/pty.js` | Interactive PTY framing, raw client, and login shell |

@@ -1,4 +1,4 @@
-# @santaklouse/p2p-netcat-core
+# p2p-netcat-core
 
 [English](README.md) | **Русский**
 
@@ -69,7 +69,7 @@ CLI и Web Worker подключают библиотеку как локаль�
 Пример использования общего плана подключения:
 
 ```js
-import { createRelayDialPlan } from '@santaklouse/p2p-netcat-core'
+import { createRelayDialPlan } from 'p2p-netcat-core'
 
 const plan = createRelayDialPlan({
   peerId: '12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9',

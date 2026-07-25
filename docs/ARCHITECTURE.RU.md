@@ -34,7 +34,7 @@ multiaddr отвечает на вопрос «каким сетевым мар�
 flowchart TB
     UI["Терминал или PWA-интерфейс"]
     ADAPTER["Платформенный адаптер: CLI или Web Worker"]
-    CORE["@santaklouse/p2p-netcat-core"]
+    CORE["p2p-netcat-core"]
     LIBP2P["libp2p: discovery, transport, encryption, muxing"]
     NET["TCP / QUIC / WSS / WebTransport / Circuit Relay"]
 
@@ -47,7 +47,7 @@ flowchart TB
 
 ### Общая библиотека
 
-Пакет `@santaklouse/p2p-netcat-core` не использует Node.js API и содержит
+Пакет `p2p-netcat-core` не использует Node.js API и содержит
 правила, которые должны одинаково работать в CLI и браузере:
 
 - проверка логического порта;
@@ -459,7 +459,7 @@ PeerId не содержит текущий IP-адрес. Поэтому абс
 | `packages/core/src/index.js` | Валидация, protocol ID, PTY codec, relay dial plan, PubSub/STUN-конфигурация |
 | `src/identity.js` | Создание и загрузка Ed25519-ключа CLI |
 | `src/node.js` | Сборка Node.js libp2p-узла и подписанного PubSub discovery |
-| `src/relay.js` | Публичный API жизненного цикла `@santaklouse/p2p-netcat/relay` |
+| `src/relay.js` | Публичный API жизненного цикла `p2p-netcat/relay` |
 | `src/discovery.js` | DHT-публикация и разрешение PeerId CLI |
 | `src/forwarding.js` | TCP forwarding, SOCKS4/4a/5 и локальные listeners |
 | `src/pty.js` | PTY framing, raw client и login shell |

@@ -5,7 +5,7 @@ import {
   PtyFrameDecoder,
   encodePtyData,
   encodePtyResize,
-} from "@santaklouse/p2p-netcat-core";
+} from "p2p-netcat-core";
 import { BrowserTrysteroClient } from "./trystero-client";
 
 export type ClientEvents = {

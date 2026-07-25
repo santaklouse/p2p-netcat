@@ -6,7 +6,7 @@ export {
   PROTOCOL_PREFIX,
   protocolForService,
   validateService
-} from '@santaklouse/p2p-netcat-core'
+} from 'p2p-netcat-core'
 
 const packageJson = createRequire(import.meta.url)('../package.json')
 export const APP_VERSION = packageJson.version

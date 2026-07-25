@@ -10,7 +10,7 @@ import {
   encodeTrysteroAuthResponse,
   trysteroAuthPayload,
   trysteroRoomId
-} from '@santaklouse/p2p-netcat-core'
+} from 'p2p-netcat-core'
 
 const { RTCPeerConnection } = wrtc
 const DATA_ACTION = 'pnc-data-v1'

@@ -1,6 +1,6 @@
 import { peerIdFromString } from '@libp2p/peer-id'
 import { multiaddr } from '@multiformats/multiaddr'
-import { relayedTargetAddress } from '@santaklouse/p2p-netcat-core'
+import { relayedTargetAddress } from 'p2p-netcat-core'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 function isMultiaddr (target) {

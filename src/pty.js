@@ -12,7 +12,7 @@ import {
   decodePtyResize,
   encodePtyData,
   encodePtyResize
-} from '@santaklouse/p2p-netcat-core'
+} from 'p2p-netcat-core'
 
 const require = createRequire(import.meta.url)
 

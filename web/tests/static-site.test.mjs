@@ -34,7 +34,7 @@ test("сетевой стек работает в отдельном Web Worker"
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(worker, /@santaklouse\/p2p-netcat-core/);
+  assert.match(worker, /p2p-netcat-core/);
   assert.doesNotMatch(worker, /const PROTOCOL_PREFIX/);
   assert.match(core, /\/p2p-netcat\/1\.0\.0/);
   assert.match(core, /class PtyFrameDecoder/);

@@ -4,7 +4,7 @@
 
 Общий алгоритм взаимодействия core-пакета, CLI, browser discovery и защищённого
 потока подробно разобран в
-[`docs/ARCHITECTURE.RU.md`](../docs/ARCHITECTURE.RU.md).
+[`docs/ARCHITECTURE.RU.md`](https://github.com/santaklouse/p2p-netcat/blob/main/docs/ARCHITECTURE.RU.md).
 
 Статический браузерный клиент для `p2p-netcat`. В проекте нет SSR, API routes,
 базы данных и серверных скриптов: production-сборка состоит только из HTML,
@@ -47,7 +47,7 @@ p2p-nc -l -i 31337
 ## Архитектура
 
 Web Worker импортирует browser-safe пакет
-[`@santaklouse/p2p-netcat-core`](../packages/core/README.RU.md), который одновременно использует CLI.
+[`p2p-netcat-core`](https://www.npmjs.com/package/p2p-netcat-core), который одновременно использует CLI.
 Общими являются protocol ID, проверка PeerId и логического порта, PTY codec,
 правила WS/WSS и построение Circuit Relay dial plan. В самом веб-проекте остаются
 Delegated Routing, DHT-клиент, libp2p WebTransport/WebSocket-транспорты,
@@ -116,6 +116,20 @@ STUN-серверы определяют публичный NAT mapping и не 
 ## Установка и сборка
 
 Требуется Node.js 22.13 или новее.
+
+Пакет npm содержит полностью собранный каталог `dist` и не имеет runtime
+npm-зависимостей. Чтобы скопировать его в каталог статического хостинга:
+
+```bash
+npm install p2p-netcat-web
+mkdir -p public/p2p-netcat
+cp -R node_modules/p2p-netcat-web/dist/. public/p2p-netcat/
+```
+
+В скопированном каталоге находятся только статические файлы. Их нужно отдавать
+по HTTPS; запущенный Node.js-процесс или серверные скрипты не требуются.
+
+Для сборки из исходного кода репозитория:
 
 ```bash
 cd web

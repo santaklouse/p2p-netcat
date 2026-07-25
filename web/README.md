@@ -4,7 +4,7 @@
 
 The complete interaction between the core package, CLI, browser discovery, and
 secure stream is documented in
-[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md).
+[`docs/ARCHITECTURE.md`](https://github.com/santaklouse/p2p-netcat/blob/main/docs/ARCHITECTURE.md).
 
 A fully static browser client for `p2p-netcat`. The project has no SSR, API
 routes, database, or server-side scripts. Its production build contains only
@@ -47,7 +47,7 @@ when the listener was started without `-i`.
 ## Architecture
 
 The Web Worker imports the browser-safe
-[`@santaklouse/p2p-netcat-core`](../packages/core) package also used by the CLI.
+[`p2p-netcat-core`](https://www.npmjs.com/package/p2p-netcat-core) package also used by the CLI.
 Protocol IDs, PeerId and logical-port validation, the PTY codec, WS/WSS rules,
 and Circuit Relay dial-plan construction are shared. Delegated Routing, the DHT client,
 libp2p WebTransport/WebSocket transports, Trystero/WebRTC, Worker messaging,
@@ -117,6 +117,20 @@ is configured.
 ## Installation and build
 
 Node.js 22.13 or newer is required.
+
+The npm package contains the complete prebuilt `dist` directory and has no
+runtime npm dependencies. To copy it into a static hosting directory:
+
+```bash
+npm install p2p-netcat-web
+mkdir -p public/p2p-netcat
+cp -R node_modules/p2p-netcat-web/dist/. public/p2p-netcat/
+```
+
+The copied directory contains only static files. Serve it over HTTPS; no
+Node.js process or server-side script is required at runtime.
+
+To build from the repository sources instead:
 
 ```bash
 cd web

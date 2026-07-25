@@ -24,7 +24,7 @@ import {
   preferDialAddresses,
   protocolForService,
   validateService,
-} from "@santaklouse/p2p-netcat-core";
+} from "p2p-netcat-core";
 
 const workerScope: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 type Node = Awaited<ReturnType<typeof createLibp2p>>;

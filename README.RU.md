@@ -15,11 +15,13 @@ Relay v2.
 - [Браузерный PWA-клиент](web/README.RU.md) — сборка, GitHub Pages,
   `network-config.json` и настройка WSS relay;
 - [API общей JavaScript-библиотеки](packages/core/README.RU.md) — функции пакета
-  `@santaklouse/p2p-netcat-core`;
+  `p2p-netcat-core`;
 - [Программный API Circuit Relay](docs/RELAY_API.RU.md) — запуск и остановка
-  relay из другой Node.js-программы через `@santaklouse/p2p-netcat/relay`.
+  relay из другой Node.js-программы через `p2p-netcat/relay`.
 - [Режимы, совместимые с gs-netcat](docs/GS_NETCAT_COMPAT.RU.md) — `-d`, `-p`,
   `-q`, `-S`, `-T` и `-i`: forwarding, SOCKS, PTY и маршрутизация через Tor.
+- [Руководство по публикации](docs/PUBLISHING.RU.md) — порядок релиза,
+  npm-проверки и чистая установка CLI, core и собранной web PWA.
 
 ## Что уже работает
 
@@ -53,7 +55,7 @@ Relay v2.
 Установка опубликованного CLI из npm:
 
 ```bash
-npm install --global @santaklouse/p2p-netcat
+npm install --global p2p-netcat
 ```
 
 Для разработки из исходного кода:
@@ -161,7 +163,7 @@ p2p-nc --relay /ip4/203.0.113.10/udp/9090/quic-v1/p2p/12D3KooWK4bicbvfPNGzfuMBf6
 дочернего процесса:
 
 ```js
-import { startRelay } from '@santaklouse/p2p-netcat/relay'
+import { startRelay } from 'p2p-netcat/relay'
 
 const relay = await startRelay({
   identityPath: './data/p2p-netcat-relay.key',
@@ -232,7 +234,7 @@ p2p-nc relay -4 -p 9090 --websocket-port 9091
 ## Общая JavaScript-библиотека
 
 Логика, которая должна совпадать в CLI и браузере, вынесена в локальный npm-пакет
-[`@santaklouse/p2p-netcat-core`](packages/core). Он не использует Node.js API и содержит
+[`p2p-netcat-core`](packages/core). Он не использует Node.js API и содержит
 единые правила для логических портов и protocol ID, проверки PeerId/multiaddr,
 валидации WS/WSS relay, построения Circuit Relay-маршрута и выбора приоритетных
 транспортов.
@@ -244,7 +246,7 @@ QUIC и DHT остаётся в CLI; DOM, Worker RPC и PWA lifecycle — в к�
 дублирования правил подключения.
 
 ```js
-import { createRelayDialPlan, protocolForService } from '@santaklouse/p2p-netcat-core'
+import { createRelayDialPlan, protocolForService } from 'p2p-netcat-core'
 
 const protocol = protocolForService(31337)
 const plan = createRelayDialPlan({
@@ -291,7 +293,7 @@ p2p-nc -i 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
 
 В браузерном клиенте перед подключением к такому listener включите
 **«Интерактивный PTY -i»**. Веб-терминал обрабатывает ANSI, передаёт клавиатуру
-и resize тем же общим PTY codec из `@santaklouse/p2p-netcat-core`.
+и resize тем же общим PTY codec из `p2p-netcat-core`.
 
 `-q` скрывает диагностику в stderr, не изменяя прикладные байты. `-T` повторно
 запускает клиент через `torsocks`, отключает прямые QUIC/WebRTC и автоматический

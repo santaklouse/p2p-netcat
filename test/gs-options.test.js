@@ -8,7 +8,7 @@ import { createProgram } from '../src/cli.js'
 import { negotiateSocks, socksProxySession, startLocalForward, tcpForwardSession } from '../src/forwarding.js'
 import { PTY_PROTOCOL, ptyServerSession } from '../src/pty.js'
 import { quietRequested, torCommand, torRequested } from '../src/tor.js'
-import { protocolForService } from '@santaklouse/p2p-netcat-core'
+import { protocolForService } from 'p2p-netcat-core'
 
 async function listen (server) {
   server.listen(0, '127.0.0.1')

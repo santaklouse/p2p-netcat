@@ -1,4 +1,4 @@
-# @santaklouse/p2p-netcat-core
+# p2p-netcat-core
 
 **English** | [Русский](README.RU.md)
 
@@ -67,7 +67,7 @@ is `file:packages/core`; the web project uses `file:../packages/core`.
 Example of constructing a shared dial plan:
 
 ```js
-import { createRelayDialPlan } from '@santaklouse/p2p-netcat-core'
+import { createRelayDialPlan } from 'p2p-netcat-core'
 
 const plan = createRelayDialPlan({
   peerId: '12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9',
