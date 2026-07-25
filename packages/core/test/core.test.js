@@ -120,7 +120,8 @@ test('Trystero stream сохраняет порядок, backpressure и EOF', a
   const controls = []
   const stream = new TrysteroStream({
     sendData: async bytes => sent.push([...bytes]),
-    sendControl: async control => controls.push(control)
+    sendControl: async control => controls.push(control),
+    keepAliveIntervalMs: 0
   })
   assert.equal(stream.send(new Uint8Array([1, 2])), false)
   await stream.onDrain()
@@ -131,6 +132,52 @@ test('Trystero stream сохраняет порядок, backpressure и EOF', a
   for await (const bytes of stream) received.push([...bytes])
   assert.deepEqual(received, [[3, 4]])
   await stream.close()
-  assert.deepEqual(controls, ['eof'])
+  assert.deepEqual(controls, ['flow:1', 'ack:2', 'eof'])
   assert.equal(stream.status, 'closed')
+})
+
+test('Trystero stream limits unacknowledged output until the consumer advances', async () => {
+  let sender
+  let receiver
+  sender = new TrysteroStream({
+    flowWindowBytes: 4,
+    keepAliveIntervalMs: 0,
+    sendData: bytes => receiver.receiveData(bytes),
+    sendControl: control => receiver.receiveControl(control)
+  })
+  receiver = new TrysteroStream({
+    flowWindowBytes: 4,
+    keepAliveIntervalMs: 0,
+    sendData: bytes => sender.receiveData(bytes),
+    sendControl: control => sender.receiveControl(control)
+  })
+  await new Promise(resolve => setImmediate(resolve))
+
+  sender.send(Uint8Array.from([1, 2, 3, 4]))
+  await sender.onDrain()
+  sender.send(Uint8Array.from([5]))
+  const blockedDrain = sender.onDrain()
+  let drained = false
+  void blockedDrain.then(() => {
+    drained = true
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(drained, false)
+
+  const iterator = receiver[Symbol.asyncIterator]()
+  assert.deepEqual(await iterator.next(), {
+    value: Uint8Array.from([1, 2, 3, 4]),
+    done: false
+  })
+  const second = iterator.next()
+  assert.deepEqual(await second, {
+    value: Uint8Array.from([5]),
+    done: false
+  })
+  await blockedDrain
+
+  const completed = iterator.next()
+  await sender.close()
+  assert.deepEqual(await completed, { value: undefined, done: true })
+  await receiver.close()
 })

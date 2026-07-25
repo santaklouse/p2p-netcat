@@ -9,14 +9,14 @@ import {
 import { BrowserTrysteroClient } from "./trystero-client";
 
 export type ClientEvents = {
-  onData: (bytes: Uint8Array) => void;
+  onData: (bytes: Uint8Array) => void | Promise<void>;
   onLog: (message: string, kind?: "info" | "success" | "error") => void;
   onClosed: () => void;
 };
 
 type WorkerRequest = {
   id: number;
-  action: "start" | "connect" | "send" | "closeWrite" | "stop";
+  action: "start" | "connect" | "send" | "ackData" | "closeWrite" | "stop";
   payload?: Record<string, unknown>;
 };
 
@@ -38,6 +38,7 @@ class WorkerP2PClient {
   private readonly pending = new Map<number, PendingRequest>();
   private requestId = 0;
   private stopped = false;
+  private outputChain = Promise.resolve();
 
   constructor(events: ClientEvents) {
     this.events = events;
@@ -132,11 +133,26 @@ class WorkerP2PClient {
     }
 
     if (message.type === "data") {
-      this.events.onData(new Uint8Array(message.bytes));
+      const bytes = new Uint8Array(message.bytes);
+      this.outputChain = this.outputChain
+        .then(() => this.events.onData(bytes))
+        .catch((error) => {
+          this.events.onLog(error instanceof Error ? error.message : String(error), "error");
+        })
+        .finally(() => {
+          if (!this.stopped) {
+            const acknowledgement: WorkerRequest = {
+              id: 0,
+              action: "ackData",
+              payload: { bytes: bytes.byteLength },
+            };
+            this.worker.postMessage(acknowledgement);
+          }
+        });
     } else if (message.type === "log") {
       this.events.onLog(message.message, message.kind);
     } else if (message.type === "closed") {
-      this.events.onClosed();
+      this.outputChain = this.outputChain.then(() => this.events.onClosed());
     }
   }
 }
@@ -252,15 +268,15 @@ export class BrowserP2PClient {
     throw new Error("P2P-канал ещё не открыт");
   }
 
-  private receive(bytes: Uint8Array) {
+  private async receive(bytes: Uint8Array) {
     if (!this.interactive) {
-      this.events.onData(bytes);
+      await this.events.onData(bytes);
       return;
     }
 
     try {
       for (const frame of this.ptyDecoder.push(bytes)) {
-        if (frame.type === PTY_FRAME_DATA) this.events.onData(frame.data);
+        if (frame.type === PTY_FRAME_DATA) await this.events.onData(frame.data);
       }
     } catch (error) {
       this.events.onLog(`Ошибка PTY-протокола: ${error instanceof Error ? error.message : String(error)}`, "error");

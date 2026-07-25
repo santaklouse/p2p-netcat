@@ -2,7 +2,7 @@
 
 import { publicKeyFromProtobuf } from "@libp2p/crypto/keys";
 import { peerIdFromPublicKey } from "@libp2p/peer-id";
-import { joinRoom, type Room } from "@trystero-p2p/torrent";
+import { defaultRelayUrls, joinRoom, type Room } from "@trystero-p2p/torrent";
 import {
   TRYSTERO_APP_ID,
   TrysteroStream,
@@ -42,8 +42,10 @@ export class BrowserTrysteroClient {
 
     const room = joinRoom({
       appId: TRYSTERO_APP_ID,
+      trickleIce: true,
       rtcConfig: defaultRtcConfiguration(),
       relayConfig: {
+        urls: [...defaultRelayUrls],
         warnOnRelayFailure: false,
       },
     }, roomId, {
@@ -89,7 +91,7 @@ export class BrowserTrysteroClient {
           if (context.peerId === remoteId) stream.receiveData(bytes(chunk));
         };
         control.onMessage = (value, context) => {
-          if (context.peerId === remoteId && (value === "eof" || value === "abort")) stream.receiveControl(value);
+          if (context.peerId === remoteId) stream.receiveControl(String(value));
         };
         room.onPeerLeave = (peerId) => {
           if (peerId === remoteId) stream.peerLeft();
@@ -126,7 +128,7 @@ export class BrowserTrysteroClient {
 
   private async receiveLoop(stream: TrysteroStream) {
     try {
-      for await (const chunk of stream) this.events.onData(chunk);
+      for await (const chunk of stream) await this.events.onData(chunk);
     } catch (error) {
       if (!this.stopped) this.events.onLog(error instanceof Error ? error.message : String(error), "error");
     } finally {

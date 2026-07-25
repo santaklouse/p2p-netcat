@@ -17,8 +17,10 @@ The package owns:
 - browser-compatible address detection;
 - a shared transport preference order;
 - the application PubSub discovery topic and interval;
-- the common WebRTC STUN pool.
-- browser-safe PTY data/resize framing and incremental decoding.
+- the common WebRTC STUN pool;
+- browser-safe PTY data/resize framing and incremental decoding;
+- negotiated Trystero byte-window flow control, acknowledgements, keepalive,
+  EOF, and abort semantics.
 
 Creating a libp2p node, querying the DHT, Web Worker RPC, and stdin/stdout remain
 in platform-specific packages.
@@ -61,8 +63,29 @@ contains the five Google STUN endpoints plus CounterPath, Sipgate, VoIPBuster,
 and InternetCalls. STUN discovers NAT mappings; it is not a TURN relay and
 cannot guarantee a direct route through symmetric or restrictive NATs.
 
-The CLI and Web Worker use the library as a local npm dependency. The CLI path
-is `file:packages/core`; the web project uses `file:../packages/core`.
+`TrysteroStream` advertises flow-control support with `flow:1`. Two current
+peers limit unacknowledged data to 256 KiB by default and send `ack:<bytes>`
+only when the async consumer advances after processing a chunk. The handshake
+is backward compatible: if the remote side does not advertise support, the
+stream keeps the legacy transport behavior. A lightweight `ping`/`pong`
+control message keeps an otherwise idle data channel active.
+
+Install the standalone browser-safe package when it is the only functionality
+needed:
+
+```bash
+npm install p2p-netcat-core
+```
+
+Code that already installs the Node.js CLI package may use the equivalent
+subpath export:
+
+```js
+import { createRelayDialPlan } from 'p2p-netcat/core'
+```
+
+Using `p2p-netcat-core` directly remains preferable in browser-only projects
+because it does not install the CLI's Node-only transports.
 
 Example of constructing a shared dial plan:
 

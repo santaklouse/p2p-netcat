@@ -54,13 +54,24 @@ libp2p WebTransport/WebSocket transports, Trystero/WebRTC, Worker messaging,
 the terminal UI, and the PWA/Service Worker remain in the web project. This
 architecture runs no server-side JavaScript.
 
+Large terminal output uses two bounded flow-control layers. The Worker stops
+reading a libp2p stream after 512 KiB is waiting in the UI and resumes below
+128 KiB. The main thread acknowledges each block only from xterm's
+`Terminal.write` completion callback. On Trystero, the shared core additionally
+negotiates a 256 KiB unacknowledged-byte window. Interactive output is not kept
+in the downloadable response buffer, so a long-running shell does not retain
+its complete history in JavaScript memory; xterm's configured scrollback
+remains the visible history.
+
 When the relay field is empty, Trystero/WebRTC and the Worker start
 simultaneously. The Worker listens for signed announcements on the app-specific
 GossipSub topic, resolves the PeerId through
 `https://delegated-ipfs.dev/routing/v1`, and then uses DHT as a fallback. The
 first authenticated channel wins. A successful libp2p route is cached in
 IndexedDB for 24 hours. The WebRTC server proves the entered PeerId with a
-signed Ed25519 challenge. `public/network-config.json` can add compatible
+signed Ed25519 challenge. The timeout entered in the UI is one deadline for
+both the Worker/libp2p branch and Trystero, so a slow DHT query cannot keep the
+form blocked after the requested interval. `public/network-config.json` can add compatible
 routing endpoints and a hidden WSS relay pool without changing the UI:
 
 ```json
@@ -92,6 +103,13 @@ browser only after it has connected to a compatible subscriber on the same
 topic. Public generic IPFS bootstrap peers are not guaranteed to join or carry
 this application topic. A p2p-netcat relay participates in the topic by
 default, so an already reachable relay can also forward discovery messages.
+
+Trystero enables trickle ICE, uses every public WebTorrent tracker bundled with
+the installed strategy, and keeps automatic tracker reconnection enabled.
+After PeerId authentication, `ping`/`pong` control frames keep an idle data
+channel active. These measures improve discovery and session stability but do
+not turn public trackers or STUN into infrastructure with an availability
+guarantee.
 
 Both browser and Node Trystero clients use this ICE/STUN pool:
 

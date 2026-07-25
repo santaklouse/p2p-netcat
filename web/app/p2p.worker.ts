@@ -32,13 +32,18 @@ type Stream = Awaited<ReturnType<Node["dialProtocol"]>>;
 
 type WorkerRequest = {
   id: number;
-  action: "start" | "connect" | "send" | "closeWrite" | "stop";
+  action: "start" | "connect" | "send" | "ackData" | "closeWrite" | "stop";
   payload?: Record<string, unknown>;
 };
 
 let node: Node | null = null;
 let stream: Stream | null = null;
 let receiveTask: Promise<void> | null = null;
+let unacknowledgedOutputBytes = 0;
+let outputCreditWaiters: Array<() => void> = [];
+
+const OUTPUT_HIGH_WATER_MARK = 512 * 1024;
+const OUTPUT_LOW_WATER_MARK = 128 * 1024;
 
 const IPFS_BOOTSTRAP_PEERS = [
   "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
@@ -374,6 +379,27 @@ async function connect(payload: Record<string, unknown>) {
   receiveTask = receiveLoop(stream);
 }
 
+async function connectWithTimeout(payload: Record<string, unknown>) {
+  const timeoutSeconds = Number(payload.timeout ?? 30);
+  if (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds < 1) {
+    throw new Error("Таймаут подключения должен быть положительным целым числом");
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      connect(payload),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`libp2p не установил соединение за ${timeoutSeconds} с`));
+        }, timeoutSeconds * 1000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function send(bytes: ArrayBuffer) {
   if (stream == null) throw new Error("Сначала установите соединение");
   if (stream.writeStatus !== "writable") throw new Error("Запись в канал уже закрыта");
@@ -384,6 +410,13 @@ async function receiveLoop(activeStream: Stream) {
   try {
     for await (const chunk of activeStream) {
       const bytes = chunk instanceof Uint8Array ? chunk : chunk.subarray();
+      while (
+        unacknowledgedOutputBytes > 0
+        && unacknowledgedOutputBytes + bytes.byteLength > OUTPUT_HIGH_WATER_MARK
+      ) {
+        await new Promise<void>((resolve) => outputCreditWaiters.push(resolve));
+      }
+      unacknowledgedOutputBytes += bytes.byteLength;
       const transferable = bytes.slice().buffer;
       workerScope.postMessage({ type: "data", bytes: transferable }, [transferable]);
     }
@@ -397,12 +430,26 @@ async function receiveLoop(activeStream: Stream) {
   }
 }
 
+function acknowledgeOutput(bytes: number) {
+  if (!Number.isSafeInteger(bytes) || bytes <= 0) return;
+  unacknowledgedOutputBytes = Math.max(0, unacknowledgedOutputBytes - bytes);
+  if (unacknowledgedOutputBytes <= OUTPUT_LOW_WATER_MARK) {
+    for (const resolve of outputCreditWaiters.splice(0)) resolve();
+  }
+}
+
+function resetOutputCredit() {
+  unacknowledgedOutputBytes = 0;
+  for (const resolve of outputCreditWaiters.splice(0)) resolve();
+}
+
 async function stop() {
   const activeStream = stream;
   stream = null;
   if (activeStream != null && activeStream.status !== "closed") {
     activeStream.abort(new Error("Соединение закрыто пользователем"));
   }
+  resetOutputCredit();
   await receiveTask?.catch(() => {});
   receiveTask = null;
   await node?.stop();
@@ -411,11 +458,15 @@ async function stop() {
 
 workerScope.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const { id, action, payload = {} } = event.data;
+  if (action === "ackData") {
+    acknowledgeOutput(Number(payload.bytes));
+    return;
+  }
   void (async () => {
     try {
       let value: unknown;
       if (action === "start") value = await startNode();
-      else if (action === "connect") value = await connect(payload);
+      else if (action === "connect") value = await connectWithTimeout(payload);
       else if (action === "send") value = await send(payload.bytes as ArrayBuffer);
       else if (action === "closeWrite") {
         if (stream != null && stream.writeStatus === "writable") await stream.close();

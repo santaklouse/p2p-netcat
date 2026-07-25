@@ -14,8 +14,8 @@ Amino DHT, mDNS, and Circuit Relay v2.
   backpressure, and failure handling;
 - [Browser PWA guide](web/README.md) — build, GitHub Pages,
   `network-config.json`, and WSS relay configuration;
-- [Shared JavaScript library API](packages/core/README.md) — exported functions
-  from `p2p-netcat-core`;
+- [Shared JavaScript library API](packages/core/README.md) — browser-safe
+  `p2p-netcat-core`, also available to CLI consumers as `p2p-netcat/core`;
 - [Programmatic Circuit Relay API](docs/RELAY_API.md) — start and stop a relay
   from another Node.js application through `p2p-netcat/relay`.
 - [gs-netcat-compatible modes](docs/GS_NETCAT_COMPAT.md) — `-d`, `-p`, `-q`,
@@ -33,6 +33,8 @@ Amino DHT, mDNS, and Circuit Relay v2.
   IPFS Amino DHT;
 - a direct Trystero/WebRTC fallback signalled through public WebTorrent trackers;
 - a shared nine-endpoint STUN pool for CLI and browser WebRTC NAT traversal;
+- bounded end-to-end flow control from `node-pty` through the transport and Web
+  Worker to xterm;
 - Circuit Relay v2 connections for nodes behind NAT;
 - A built-in relay mode;
 - gs-netcat-style TCP forwarding, SOCKS4/4a/5, quiet, Tor, and true PTY modes;
@@ -50,6 +52,19 @@ Node.js 22 or newer is required. The QUIC transport uses a native N-API module
 with prebuilt binaries for mainstream macOS, Linux, and Windows platforms.
 Interactive `-i` uses the native `node-pty` module; on Linux, installing from
 npm may require Python, `make`, and a C/C++ compiler for `node-gyp`.
+
+The current js-libp2p dependency set does not support Node.js 18. On an older
+Ubuntu installation, upgrade before running the CLI:
+
+```bash
+nvm install 22
+nvm use 22
+node --version
+```
+
+The CLI checks this before importing libp2p and reports the required version
+instead of a secondary `CustomEvent`, `Promise.withResolvers`, or PubSub cleanup
+error.
 
 Install the published CLI from npm:
 
@@ -233,12 +248,20 @@ WSS, typically through a TLS reverse proxy on port 443. See
 
 ## Shared JavaScript library
 
-Logic that must behave identically in the CLI and browser lives in the local
+Logic that must behave identically in the CLI and browser lives in the
 [`p2p-netcat-core`](packages/core) npm package. It uses no Node.js APIs and
 owns logical-port and protocol-ID rules, PeerId/multiaddr validation, WS/WSS
 relay validation, Circuit Relay route planning, and transport preference.
 
-The CLI imports this package directly, while the browser imports it from its
+Applications that already depend on the CLI package can use its subpath export:
+
+```js
+import { createRelayDialPlan, protocolForService } from 'p2p-netcat/core'
+```
+
+Browser-only packages should keep using the smaller standalone
+`p2p-netcat-core` package to avoid installing Node-only CLI transports. The CLI
+imports the same core, while the browser imports it from its
 Web Worker. Platform adapters remain separate: stdin/stdout, local identities,
 QUIC, and the DHT belong to the CLI; DOM integration, Worker RPC, and the PWA
 lifecycle belong to `web`. This gives future discovery and fallback strategies
@@ -355,7 +378,8 @@ p2p-nc relay --help
 6. Without an explicit route, a direct Trystero/WebRTC channel is attempted in
    parallel.
 7. QUIC TLS 1.3, Noise, or a signed WebRTC challenge authenticates the PeerId.
-8. stdin/stdout is transferred as a raw byte stream with backpressure.
+8. stdin/stdout or PTY frames are transferred with bounded backpressure. The
+   browser acknowledges output only after xterm has rendered it.
 
 The [architecture document](docs/ARCHITECTURE.md) describes every CLI and
 browser branch, timeout, cache, concurrent address race, and trust boundary in
@@ -373,6 +397,9 @@ QUIC streams, avoiding unnecessary HTTP request, header, and CONNECT semantics.
   option is to pass the same `--relay` to both the server and client.
 - WebRTC improves direct connectivity, but symmetric NAT or blocked UDP may
   still require TURN or Circuit Relay; public trackers provide no SLA.
+- Trystero uses all trackers bundled with its current BitTorrent strategy and
+  automatically reconnects signaling sockets, but third-party infrastructure
+  cannot guarantee 100% availability.
 - PubSub improves discovery only after a node reaches a compatible mesh member;
   it is not a global rendezvous service.
 - An IPFS HTTP gateway is not a relay and cannot carry this protocol.

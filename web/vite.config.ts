@@ -15,11 +15,11 @@ export default defineConfig(() => {
     base,
     server: {
       host: true,
-      allowedHosts: true
+      allowedHosts: true as const
     },
     preview: {
       host: true,
-      allowedHosts: true
+      allowedHosts: true as const
     },
     plugins: [
       react(),

@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 export type BrowserTerminalHandle = {
   clear: () => void;
   focus: () => void;
-  write: (bytes: Uint8Array) => void;
+  write: (bytes: Uint8Array) => Promise<void>;
 };
 
 type BrowserTerminalProps = {
@@ -38,7 +38,11 @@ export const BrowserTerminal = forwardRef<BrowserTerminalHandle, BrowserTerminal
       terminalRef.current?.clear();
     },
     focus: () => terminalRef.current?.focus(),
-    write: (bytes) => terminalRef.current?.write(bytes),
+    write: (bytes) => {
+      const terminal = terminalRef.current;
+      if (terminal == null) return Promise.resolve();
+      return new Promise<void>((resolve) => terminal.write(bytes, resolve));
+    },
   }), []);
 
   useEffect(() => {

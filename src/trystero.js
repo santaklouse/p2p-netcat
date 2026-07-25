@@ -1,7 +1,13 @@
 import wrtc from '@roamhq/wrtc'
 import { publicKeyFromProtobuf, publicKeyToProtobuf } from '@libp2p/crypto/keys'
 import { peerIdFromPublicKey, peerIdFromPrivateKey } from '@libp2p/peer-id'
-import { getRelaySockets, joinRoom, pauseRelayReconnection } from '@trystero-p2p/torrent'
+import {
+  defaultRelayUrls,
+  getRelaySockets,
+  joinRoom,
+  pauseRelayReconnection,
+  resumeRelayReconnection
+} from '@trystero-p2p/torrent'
 import {
   TRYSTERO_APP_ID,
   TrysteroStream,
@@ -27,14 +33,17 @@ function roomConfig () {
   return {
     appId: TRYSTERO_APP_ID,
     rtcPolyfill: RTCPeerConnection,
+    trickleIce: true,
     rtcConfig: defaultRtcConfiguration(),
     relayConfig: {
+      urls: [...defaultRelayUrls],
       warnOnRelayFailure: false
     }
   }
 }
 
 function closeRelaySockets () {
+  pauseRelayReconnection()
   for (const socket of Object.values(getRelaySockets())) {
     const close = () => {
       try {
@@ -86,7 +95,7 @@ function createHub (room, { onStream, leaveAfterStream = false } = {}) {
 }
 
 export function startTrysteroListener ({ privateKey, service, onStream, verbose = false }) {
-  pauseRelayReconnection()
+  resumeRelayReconnection()
   const peerId = peerIdFromPrivateKey(privateKey).toString()
   const roomId = trysteroRoomId(peerId, service)
   const room = joinRoom(roomConfig(), roomId, {
@@ -107,7 +116,7 @@ export function startTrysteroListener ({ privateKey, service, onStream, verbose 
 }
 
 export function connectTrystero ({ peerId, service, timeoutMs = 30_000, verbose = false }) {
-  pauseRelayReconnection()
+  resumeRelayReconnection()
   const roomId = trysteroRoomId(peerId, service)
   let settled = false
   let rejectAttempt

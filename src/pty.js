@@ -43,17 +43,68 @@ async function * decodeFrames (source) {
   decoder.finish()
 }
 
-function createSender (stream) {
+export function createStreamSender (stream, {
+  highWaterMarkBytes = 512 * 1024,
+  lowWaterMarkBytes = 128 * 1024,
+  onPause = () => {},
+  onResume = () => {}
+} = {}) {
+  if (!Number.isSafeInteger(highWaterMarkBytes) || highWaterMarkBytes < 1) {
+    throw new RangeError('highWaterMarkBytes must be a positive integer')
+  }
+  if (!Number.isSafeInteger(lowWaterMarkBytes) || lowWaterMarkBytes < 0 || lowWaterMarkBytes >= highWaterMarkBytes) {
+    throw new RangeError('lowWaterMarkBytes must be a non-negative integer below highWaterMarkBytes')
+  }
+
   let pending = Promise.resolve()
+  let queuedBytes = 0
+  let paused = false
+  let firstError
+
+  const updateFlowControl = () => {
+    if (!paused && queuedBytes >= highWaterMarkBytes) {
+      paused = true
+      try {
+        onPause()
+      } catch {}
+    } else if (paused && queuedBytes <= lowWaterMarkBytes) {
+      paused = false
+      try {
+        onResume()
+      } catch {}
+    }
+  }
+
   return {
     send (value) {
-      pending = pending.then(async () => {
-        if (!stream.send(value) && typeof stream.onDrain === 'function') await stream.onDrain()
+      if (firstError != null) return Promise.reject(firstError)
+      const payload = asBytes(value).slice()
+      queuedBytes += payload.byteLength
+      updateFlowControl()
+
+      const operation = pending.then(async () => {
+        if (firstError != null) throw firstError
+        if (stream.writeStatus != null && stream.writeStatus !== 'writable') {
+          throw new Error('Cannot write to a stream that is closed')
+        }
+        if (!stream.send(payload) && typeof stream.onDrain === 'function') await stream.onDrain()
       })
-      return pending
+      const tracked = operation.finally(() => {
+        queuedBytes -= payload.byteLength
+        updateFlowControl()
+      })
+      pending = tracked.catch(error => {
+        firstError ??= error
+      })
+      return tracked
     },
-    drain () {
-      return pending
+    async drain ({ ignoreClosed = false } = {}) {
+      await pending
+      const closed = stream.status === 'closed' || stream.writeStatus === 'closed'
+      if (firstError != null && !(ignoreClosed && closed)) throw firstError
+    },
+    get queuedBytes () {
+      return queuedBytes
     }
   }
 }
@@ -86,7 +137,7 @@ export async function interactiveClientSession (stream, {
     throw new Error('Интерактивный режим -i требует TTY на stdin')
   }
 
-  const sender = createSender(stream)
+  const sender = createStreamSender(stream)
   const state = { escape: false }
   let quitting = false
   const wasRaw = input.isRaw
@@ -138,7 +189,10 @@ export async function ptyServerSession (stream, {
     cwd,
     env
   })
-  const sender = createSender(stream)
+  const sender = createStreamSender(stream, {
+    onPause: () => terminal.pause(),
+    onResume: () => terminal.resume()
+  })
   const decoder = new StringDecoder('utf8')
   const outputSubscription = terminal.onData(data => {
     void sender.send(encodePtyData(Buffer.from(data, 'utf8'))).catch(() => {})
@@ -167,13 +221,13 @@ export async function ptyServerSession (stream, {
       exitPromise.then(code => ({ source: 'pty', code }))
     ])
     if (result.source === 'remote') {
-      if (verbose) process.stderr.write(`terminal should be killed?!\n`)
+      if (verbose) process.stderr.write('[p2p-nc] удалённая сторона закрыла PTY; завершаем shell\n')
       terminal.kill()
       exitCode = await exitPromise
     } else {
       exitCode = result.code
     }
-    await sender.drain()
+    await sender.drain({ ignoreClosed: result.source === 'remote' })
     if (stream.writeStatus === 'writable') await stream.close()
     await receiveTask.catch(() => {})
   } finally {

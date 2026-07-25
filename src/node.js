@@ -1,3 +1,4 @@
+import './runtime.js'
 import { createLibp2p } from 'libp2p'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
@@ -20,6 +21,28 @@ import {
   preferDialAddresses
 } from 'p2p-netcat-core'
 import { APP_VERSION, IPFS_BOOTSTRAP_PEERS } from './constants.js'
+
+export function protectPubsubPeerDiscovery (createDiscovery) {
+  return components => {
+    const discovery = createDiscovery(components)
+    const beforeStop = discovery.beforeStop.bind(discovery)
+    discovery.beforeStop = () => {
+      try {
+        beforeStop()
+      } catch (error) {
+        // During a partial libp2p startup failure GossipSub may already be
+        // stopped. Do not let discovery cleanup hide the original exception.
+        const message = error instanceof Error ? error.message : String(error)
+        if (!/pubsub (?:is|has) not started/i.test(message)) throw error
+      }
+    }
+    return discovery
+  }
+}
+
+function safePubsubPeerDiscovery (options) {
+  return protectPubsubPeerDiscovery(pubsubPeerDiscovery(options))
+}
 
 export async function createP2PNode ({
   privateKey,
@@ -68,7 +91,7 @@ export async function createP2PNode ({
     peerDiscovery.push(bootstrap({ list: bootstrapPeers, timeout: 10_000 }))
   }
   if (enablePubsub) {
-    peerDiscovery.push(pubsubPeerDiscovery({
+    peerDiscovery.push(safePubsubPeerDiscovery({
       interval: pubsubIntervalMs,
       topics: [PUBSUB_DISCOVERY_TOPIC]
     }))

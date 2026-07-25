@@ -82,13 +82,13 @@ export default function Home() {
     browserTerminalRef.current?.clear();
 
     const client = new BrowserP2PClient({
-      onData: (bytes) => {
-        receivedChunks.current.push(bytes.slice().buffer as ArrayBuffer);
+      onData: async (bytes) => {
         setReceivedBytes((value) => value + bytes.byteLength);
         if (interactive) {
-          browserTerminalRef.current?.write(bytes);
+          await browserTerminalRef.current?.write(bytes);
           return;
         }
+        receivedChunks.current.push(bytes.slice().buffer as ArrayBuffer);
         const text = decoder.current.decode(bytes, { stream: true });
         if (text) {
           setTerminalEntries((current) => [

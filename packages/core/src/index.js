@@ -234,22 +234,61 @@ export class TrysteroStream {
   #sendData
   #sendControl
   #onFinalize
+  #flowWindowBytes
+  #flowEnabled = false
+  #inFlightBytes = 0
+  #flowWaiters = []
+  #keepAliveTimer
   #pending = Promise.resolve()
   #items = []
   #waiters = []
   #readClosed = false
   #finalized = false
 
-  constructor ({ sendData, sendControl, onFinalize = () => {} }) {
+  constructor ({
+    sendData,
+    sendControl,
+    onFinalize = () => {},
+    flowWindowBytes = 256 * 1024,
+    keepAliveIntervalMs = 15_000
+  }) {
+    if (!Number.isSafeInteger(flowWindowBytes) || flowWindowBytes < 1) {
+      throw new RangeError('flowWindowBytes must be a positive integer')
+    }
+    if (!Number.isSafeInteger(keepAliveIntervalMs) || keepAliveIntervalMs < 0) {
+      throw new RangeError('keepAliveIntervalMs must be a non-negative integer')
+    }
     this.#sendData = sendData
     this.#sendControl = sendControl
     this.#onFinalize = onFinalize
+    this.#flowWindowBytes = flowWindowBytes
+
+    queueMicrotask(() => {
+      if (this.status === 'open') void this.#sendControlSafely('flow:1').catch(() => {})
+    })
+    if (keepAliveIntervalMs > 0) {
+      this.#keepAliveTimer = setInterval(() => {
+        if (this.status === 'open') void this.#sendControlSafely('ping').catch(() => {})
+      }, keepAliveIntervalMs)
+      this.#keepAliveTimer.unref?.()
+    }
   }
 
   send (chunk) {
     if (this.writeStatus !== 'writable') throw new Error('Trystero stream is not writable')
     const bytes = asBytes(chunk).slice()
-    this.#pending = this.#pending.then(() => this.#sendData(bytes))
+    this.#pending = this.#pending.then(async () => {
+      await this.#waitForFlowWindow(bytes.byteLength)
+      if (this.writeStatus === 'closed') throw new Error('Trystero stream is not writable')
+      if (this.#flowEnabled) this.#inFlightBytes += bytes.byteLength
+      try {
+        await this.#sendData(bytes)
+      } catch (error) {
+        if (this.#flowEnabled) this.#inFlightBytes -= bytes.byteLength
+        this.#wakeFlowWaiters()
+        throw error
+      }
+    })
     return false
   }
 
@@ -270,7 +309,7 @@ export class TrysteroStream {
     if (this.status === 'closed') return
     this.writeStatus = 'closed'
     this.status = 'closed'
-    void this.#sendControl('abort').catch(() => {})
+    void this.#sendControlSafely('abort').catch(() => {})
     this.#fail(error)
     this.#finalize()
   }
@@ -290,8 +329,20 @@ export class TrysteroStream {
     } else if (control === 'abort') {
       this.status = 'closed'
       this.writeStatus = 'closed'
-      this.#fail(new Error('Remote Trystero peer aborted the stream'))
+      const error = new Error('Remote Trystero peer aborted the stream')
+      this.#fail(error)
+      this.#wakeFlowWaiters(error)
       this.#finalize()
+    } else if (control === 'flow:1') {
+      this.#flowEnabled = true
+    } else if (control.startsWith('ack:')) {
+      const acknowledged = Number.parseInt(control.slice(4), 10)
+      if (Number.isSafeInteger(acknowledged) && acknowledged > 0) {
+        this.#inFlightBytes = Math.max(0, this.#inFlightBytes - acknowledged)
+        this.#wakeFlowWaiters()
+      }
+    } else if (control === 'ping') {
+      void this.#sendControlSafely('pong').catch(() => {})
     }
   }
 
@@ -300,17 +351,66 @@ export class TrysteroStream {
     this.status = 'closed'
     this.writeStatus = 'closed'
     this.#endRead()
+    this.#wakeFlowWaiters(new Error('Remote Trystero peer left'))
     this.#finalize()
   }
 
   [Symbol.asyncIterator] () {
+    let consumedBytes = 0
     return {
-      next: () => {
+      next: async () => {
+        if (consumedBytes > 0) {
+          const acknowledged = consumedBytes
+          consumedBytes = 0
+          await this.#sendControlSafely(`ack:${acknowledged}`).catch(() => {})
+        }
         const item = this.#items.shift()
-        if (item != null) return Promise.resolve({ value: item, done: false })
-        if (this.#readClosed) return Promise.resolve({ value: undefined, done: true })
-        return new Promise((resolve, reject) => this.#waiters.push({ resolve, reject }))
+        if (item != null) {
+          consumedBytes = item.byteLength
+          return { value: item, done: false }
+        }
+        if (this.#readClosed) return { value: undefined, done: true }
+        const result = await new Promise((resolve, reject) => this.#waiters.push({ resolve, reject }))
+        if (!result.done) consumedBytes = result.value.byteLength
+        return result
+      },
+      return: async () => {
+        if (consumedBytes > 0) {
+          await this.#sendControlSafely(`ack:${consumedBytes}`).catch(() => {})
+          consumedBytes = 0
+        }
+        return { value: undefined, done: true }
       }
+    }
+  }
+
+  async #waitForFlowWindow (byteLength) {
+    while (
+      this.#flowEnabled &&
+      this.status === 'open' &&
+      this.writeStatus !== 'closed' &&
+      this.#inFlightBytes > 0 &&
+      this.#inFlightBytes + byteLength > this.#flowWindowBytes
+    ) {
+      await new Promise((resolve, reject) => this.#flowWaiters.push({ resolve, reject }))
+    }
+    if (this.status !== 'open' || this.writeStatus === 'closed') {
+      throw new Error('Trystero stream is not writable')
+    }
+  }
+
+  #wakeFlowWaiters (error) {
+    for (const waiter of this.#flowWaiters.splice(0)) {
+      if (error == null) waiter.resolve()
+      else waiter.reject(error)
+    }
+  }
+
+  #sendControlSafely (control) {
+    try {
+      return Promise.resolve(this.#sendControl(control))
+    } catch (error) {
+      return Promise.reject(error)
     }
   }
 
@@ -335,6 +435,8 @@ export class TrysteroStream {
   #finalize () {
     if (this.#finalized) return
     this.#finalized = true
+    clearInterval(this.#keepAliveTimer)
+    this.#wakeFlowWaiters(new Error('Trystero stream is closed'))
     this.#onFinalize()
   }
 }

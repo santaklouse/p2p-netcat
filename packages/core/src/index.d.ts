@@ -73,15 +73,17 @@ export class TrysteroStream implements AsyncIterable<Uint8Array> {
   writeStatus: "writable" | "closing" | "closed";
   constructor(options: {
     sendData: (bytes: Uint8Array) => void | Promise<void>;
-    sendControl: (control: "eof" | "abort") => void | Promise<void>;
+    sendControl: (control: string) => void | Promise<void>;
     onFinalize?: () => void;
+    flowWindowBytes?: number;
+    keepAliveIntervalMs?: number;
   });
   send(chunk: ArrayBuffer | ArrayBufferView): boolean;
   onDrain(): Promise<void>;
   close(): Promise<void>;
   abort(error?: Error): void;
   receiveData(chunk: ArrayBuffer | ArrayBufferView): void;
-  receiveControl(control: "eof" | "abort"): void;
+  receiveControl(control: string): void;
   peerLeft(): void;
   [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
 }

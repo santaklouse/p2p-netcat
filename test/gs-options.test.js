@@ -6,7 +6,7 @@ import { generateKeyPair } from '@libp2p/crypto/keys'
 import { createP2PNode } from '../src/node.js'
 import { createProgram } from '../src/cli.js'
 import { negotiateSocks, socksProxySession, startLocalForward, tcpForwardSession } from '../src/forwarding.js'
-import { PTY_PROTOCOL, ptyServerSession } from '../src/pty.js'
+import { PTY_PROTOCOL, createStreamSender, ptyServerSession } from '../src/pty.js'
 import { quietRequested, torCommand, torRequested } from '../src/tor.js'
 import { protocolForService } from 'p2p-netcat-core'
 
@@ -239,6 +239,41 @@ function memoryStreamPair () {
   second.peer = first
   return [first, second]
 }
+
+test('PTY sender pauses output while the network stream is backpressured', async () => {
+  const drainResolvers = []
+  const transitions = []
+  const stream = {
+    status: 'open',
+    writeStatus: 'writable',
+    send: () => false,
+    onDrain: () => new Promise(resolve => drainResolvers.push(resolve))
+  }
+  const sender = createStreamSender(stream, {
+    highWaterMarkBytes: 8,
+    lowWaterMarkBytes: 4,
+    onPause: () => transitions.push('pause'),
+    onResume: () => transitions.push('resume')
+  })
+
+  const first = sender.send(Uint8Array.from({ length: 6 }, () => 1))
+  const second = sender.send(Uint8Array.from({ length: 6 }, () => 2))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(sender.queuedBytes, 12)
+  assert.deepEqual(transitions, ['pause'])
+
+  drainResolvers.shift()()
+  await first
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(sender.queuedBytes, 6)
+  assert.deepEqual(transitions, ['pause'])
+
+  drainResolvers.shift()()
+  await second
+  await sender.drain()
+  assert.equal(sender.queuedBytes, 0)
+  assert.deepEqual(transitions, ['pause', 'resume'])
+})
 
 test('-i запускает настоящий PTY, принимает resize и выполняет login shell', async () => {
   if (process.platform === 'win32') return

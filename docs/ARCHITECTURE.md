@@ -127,11 +127,21 @@ accepted, the client sends a random 32-byte challenge. The CLI server signs a
 domain-separated transcript with its persistent Ed25519 key; the client checks
 the signature and derives the expected PeerId from the supplied public key.
 The first authenticated libp2p or WebRTC channel cancels the losing attempt.
+Both branches share the connection timeout entered in the UI; the Worker
+enforces it around its complete cache, Delegated Routing, DHT, and dial
+sequence.
 
 Both Trystero adapters receive the same ICE configuration from the core
 package. It contains nine `stun:` URLs: five Google endpoints plus CounterPath,
 Sipgate, VoIPBuster, and InternetCalls. STUN exposes public NAT mappings to the
 WebRTC stack; no p2p-netcat payload is sent through a STUN server.
+
+The BitTorrent signaling strategy enables trickle ICE and connects to all
+trackers exported by the installed Trystero package. Automatic signaling-socket
+reconnection remains active for the lifetime of a listener or connection
+attempt; it is paused only during intentional shutdown. Once authenticated, a
+15-second `ping`/`pong` control exchange keeps an otherwise idle Trystero data
+channel active.
 
 If a manual relay is supplied, automatic discovery is skipped. The core package
 requires a relay PeerId, WS/WSS transport, and WSS for an HTTPS page, then builds
@@ -168,6 +178,30 @@ protocol. CLI sending and receiving run concurrently and honor backpressure.
 EOF closes the write side after the optional `--quit-delay` while receiving can
 continue. The browser reads files as streams and transfers each chunk to the
 Worker.
+
+Interactive terminal output has a bounded, end-to-end pipeline:
+
+1. `node-pty` emits terminal bytes and the server encodes them as PTY data
+   frames.
+2. The server sender counts queued bytes. At 512 KiB it calls `IPty.pause()`;
+   once the queue falls to 128 KiB it calls `IPty.resume()`.
+3. A libp2p stream waits for `onDrain()`. A Trystero stream first negotiates
+   `flow:1`, then limits unacknowledged payload to 256 KiB.
+4. The receiver sends `ack:<bytes>` only when its async iterator advances after
+   the consumer has processed the previous chunk. Peers without `flow:1`
+   continue using the legacy behavior.
+5. For libp2p browser routes, the Worker permits at most 512 KiB of output to
+   wait on the main thread and resumes below 128 KiB.
+6. The main thread acknowledges a Worker block only after xterm calls the
+   completion callback supplied to `Terminal.write()`.
+
+The result is bounded memory at every producer/consumer boundary. Interactive
+output is deliberately excluded from the browser's downloadable-response
+buffer; xterm's finite scrollback is the retained terminal history. If the
+remote side closes normally, queued PTY writes are discarded during teardown
+without reporting the misleading secondary error `Cannot write to a stream
+that is closed`. A write failure while the stream is still open remains a real
+session error.
 
 gs-netcat-style adapter modes sit above the same authenticated stream. Client
 `-p` creates a local TCP listener and opens one P2P stream per socket. Listener
@@ -208,6 +242,8 @@ unless the peer is locally reachable.
 - PubSub discovery needs an already reachable compatible mesh member and is not
   a global rendezvous service.
 - Public WebTorrent trackers may be unavailable and provide no SLA.
+- Automatic tracker reconnection improves availability but cannot make a
+  third-party signaling network 100% reliable.
 - Public IPFS peers do not guarantee arbitrary Circuit Relay capacity.
 - There is no PeerId allowlist or application authorization layer yet.
 - Netcat-style UDP datagrams are not implemented; QUIC still carries a reliable

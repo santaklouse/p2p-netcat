@@ -18,8 +18,10 @@ JavaScript-клиентами.
 - определение browser-compatible адресов;
 - единый порядок предпочтения транспортов;
 - общую тему и интервал PubSub discovery;
-- общий пул STUN-серверов WebRTC.
-- browser-safe кадрирование PTY-данных/resize и инкрементальное декодирование.
+- общий пул STUN-серверов WebRTC;
+- browser-safe кадрирование PTY-данных/resize и инкрементальное декодирование;
+- согласованный flow control Trystero с окном байтов, подтверждениями, keepalive,
+  EOF и abort.
 
 Создание libp2p-узла, DHT, Web Worker RPC и stdin/stdout остаются в платформенных
 пакетах.
@@ -62,9 +64,28 @@ JavaScript-клиентами.
 InternetCalls. STUN помогает определить NAT mapping, но не является TURN relay
 и не гарантирует прямое соединение через symmetric или жёсткий NAT.
 
-CLI и Web Worker подключают библиотеку как локальную npm-зависимость. Для CLI
-используется путь `file:packages/core`, для веб-проекта —
-`file:../packages/core`.
+`TrysteroStream` объявляет поддержку flow control сообщением `flow:1`. Два
+актуальных пира по умолчанию ограничивают неподтверждённые данные окном 256 КиБ
+и отправляют `ack:<bytes>` лишь тогда, когда async consumer перешёл к следующему
+блоку после обработки текущего. Согласование обратно совместимо: старый пир без
+`flow:1` продолжает работать по прежним правилам транспорта. Лёгкие
+`ping`/`pong` поддерживают неактивный data channel.
+
+Если нужно только browser-safe ядро, установите отдельный пакет:
+
+```bash
+npm install p2p-netcat-core
+```
+
+Код, в котором уже установлен Node.js CLI, может использовать равнозначный
+subpath export:
+
+```js
+import { createRelayDialPlan } from 'p2p-netcat/core'
+```
+
+Для browser-only проекта предпочтителен прямой `p2p-netcat-core`: он не
+устанавливает Node-only транспорты CLI.
 
 Пример использования общего плана подключения:
 

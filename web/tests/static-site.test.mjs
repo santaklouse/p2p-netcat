@@ -60,6 +60,16 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.match(core, /stun:stun\.l\.google\.com:19302/);
   assert.match(core, /stun:stun\.internetcalls\.com:3478/);
   assert.match(client, /transfer/);
+  assert.match(client, /ackData/);
+  assert.match(worker, /OUTPUT_HIGH_WATER_MARK/);
+  assert.match(worker, /unacknowledgedOutputBytes/);
+  assert.match(worker, /connectWithTimeout/);
+  assert.match(worker, /libp2p не установил соединение за/);
+  assert.match(terminal, /terminal\.write\(bytes, resolve\)/);
+  assert.match(trystero, /defaultRelayUrls/);
+  assert.match(trystero, /trickleIce: true/);
+  assert.match(core, /flowWindowBytes/);
+  assert.match(core, /ack:/);
   assert.match(page, /Необязательно · используется автопоиск/);
   assert.doesNotMatch(page, /!targetPeerId \|\| !relayAddress/);
   assert.match(main, /location\.hostname\.endsWith\("\.github\.io"\)/);

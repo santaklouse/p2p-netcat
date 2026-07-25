@@ -14,8 +14,9 @@ Relay v2.
   backpressure и обработка ошибок;
 - [Браузерный PWA-клиент](web/README.RU.md) — сборка, GitHub Pages,
   `network-config.json` и настройка WSS relay;
-- [API общей JavaScript-библиотеки](packages/core/README.RU.md) — функции пакета
-  `p2p-netcat-core`;
+- [API общей JavaScript-библиотеки](packages/core/README.RU.md) — browser-safe
+  пакет `p2p-netcat-core`, также доступный пользователям CLI как
+  `p2p-netcat/core`;
 - [Программный API Circuit Relay](docs/RELAY_API.RU.md) — запуск и остановка
   relay из другой Node.js-программы через `p2p-netcat/relay`.
 - [Режимы, совместимые с gs-netcat](docs/GS_NETCAT_COMPAT.RU.md) — `-d`, `-p`,
@@ -33,6 +34,8 @@ Relay v2.
   Amino DHT;
 - прямой Trystero/WebRTC fallback с signaling через публичные WebTorrent trackers;
 - общий пул из девяти STUN endpoint для WebRTC NAT traversal в CLI и браузере;
+- ограниченный сквозной flow control от `node-pty` через транспорт и Web Worker
+  до xterm;
 - соединение через Circuit Relay v2 для узлов за NAT;
 - собственный relay-режим;
 - TCP forwarding, SOCKS4/4a/5, quiet, Tor и настоящий PTY в стиле gs-netcat;
@@ -51,6 +54,18 @@ Relay v2.
 с готовыми бинарными сборками для основных платформ macOS, Linux и Windows.
 Интерактивный `-i` использует нативный `node-pty`; при установке из npm на Linux
 могут потребоваться Python, `make` и C/C++ compiler для `node-gyp`.
+
+Текущий набор зависимостей js-libp2p не поддерживает Node.js 18. На Ubuntu со
+старой версией Node сначала выполните:
+
+```bash
+nvm install 22
+nvm use 22
+node --version
+```
+
+CLI проверяет версию до импорта libp2p и показывает понятное требование вместо
+вторичных ошибок `CustomEvent`, `Promise.withResolvers` или очистки PubSub.
 
 Установка опубликованного CLI из npm:
 
@@ -233,13 +248,21 @@ p2p-nc relay -4 -p 9090 --websocket-port 9091
 
 ## Общая JavaScript-библиотека
 
-Логика, которая должна совпадать в CLI и браузере, вынесена в локальный npm-пакет
+Логика, которая должна совпадать в CLI и браузере, вынесена в npm-пакет
 [`p2p-netcat-core`](packages/core). Он не использует Node.js API и содержит
 единые правила для логических портов и protocol ID, проверки PeerId/multiaddr,
 валидации WS/WSS relay, построения Circuit Relay-маршрута и выбора приоритетных
 транспортов.
 
-CLI импортирует пакет напрямую, а браузер использует его внутри Web Worker.
+Приложение, в котором уже установлен CLI-пакет, может использовать его subpath:
+
+```js
+import { createRelayDialPlan, protocolForService } from 'p2p-netcat/core'
+```
+
+Для browser-only проекта лучше оставить отдельный компактный
+`p2p-netcat-core`, чтобы не устанавливать Node-only транспорты CLI. Сам CLI
+импортирует то же ядро, а браузер использует его внутри Web Worker.
 Платформенные части намеренно разделены: работа с stdin/stdout, локальным ключом,
 QUIC и DHT остаётся в CLI; DOM, Worker RPC и PWA lifecycle — в каталоге `web`.
 Благодаря этому discovery и fallback можно развивать через общий интерфейс без
@@ -353,7 +376,8 @@ p2p-nc relay --help
 5. При `--relay` строится маршрут `relay/p2p-circuit/p2p/server`.
 6. Без явного маршрута одновременно пробуется прямой Trystero/WebRTC-канал.
 7. QUIC TLS 1.3, Noise или подписанный WebRTC challenge аутентифицирует PeerId.
-8. stdin/stdout передаются как необработанный поток байтов с backpressure.
+8. stdin/stdout или PTY-фреймы передаются с ограниченным backpressure. Браузер
+   подтверждает вывод только после его отрисовки в xterm.
 
 Полное пошаговое описание разных веток CLI и браузера, таймаутов, кеша,
 параллельного выбора адресов и модели доверия находится в
@@ -371,6 +395,9 @@ libp2p QUIC-потоки без лишних HTTP-запросов, заголо
   надёжный вариант — передать одинаковый `--relay` серверу и клиенту.
 - WebRTC увеличивает шанс прямого соединения, но symmetric NAT и блокировка UDP
   могут потребовать TURN или Circuit Relay; публичные trackers не дают SLA.
+- Trystero использует все trackers, входящие в текущую BitTorrent-стратегию, и
+  автоматически переподключает signaling-сокеты, но сторонняя инфраструктура
+  не может гарантировать 100% доступность.
 - PubSub улучшает discovery только после подключения к участнику совместимой
   mesh и не является глобальным rendezvous-сервисом.
 - IPFS HTTP gateway не является relay и не может переносить этот протокол.

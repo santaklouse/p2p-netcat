@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateKeyPair, publicKeyFromProtobuf, publicKeyToProtobuf } from '@libp2p/crypto/keys'
 import { peerIdFromPrivateKey, peerIdFromPublicKey } from '@libp2p/peer-id'
-import { createP2PNode } from '../src/node.js'
+import { createP2PNode, protectPubsubPeerDiscovery } from '../src/node.js'
 import { loadOrCreateIdentity } from '../src/identity.js'
 import { startRelay } from 'p2p-netcat/relay'
+import { protocolForService as protocolFromCliSubpath } from 'p2p-netcat/core'
 import {
   decodeTrysteroAuthResponse,
   encodeTrysteroAuthResponse,
@@ -23,6 +24,26 @@ test('логический порт валидируется и преобраз
   assert.equal(protocolForService(8080), '/p2p-netcat/1.0.0/8080')
   assert.throws(() => validateService(0), /от 1 до 65535/)
   assert.throws(() => validateService(65536), /от 1 до 65535/)
+})
+
+test('CLI subpath p2p-netcat/core экспортирует browser-safe ядро', () => {
+  assert.equal(protocolFromCliSubpath(31337), '/p2p-netcat/1.0.0/31337')
+})
+
+test('ошибка остановки частично запущенного PubSub не скрывает исходную ошибку', () => {
+  const stopped = protectPubsubPeerDiscovery(() => ({
+    beforeStop () {
+      throw new Error('Pubsub is not started')
+    }
+  }))({})
+  assert.doesNotThrow(() => stopped.beforeStop())
+
+  const unexpected = protectPubsubPeerDiscovery(() => ({
+    beforeStop () {
+      throw new Error('unexpected cleanup failure')
+    }
+  }))({})
+  assert.throws(() => unexpected.beforeStop(), /unexpected cleanup failure/)
 })
 
 test('постоянный ключ сохраняет один и тот же PeerId и закрытые права', async () => {
