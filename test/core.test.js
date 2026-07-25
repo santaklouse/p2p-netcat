@@ -7,16 +7,16 @@ import { generateKeyPair, publicKeyFromProtobuf, publicKeyToProtobuf } from '@li
 import { peerIdFromPrivateKey, peerIdFromPublicKey } from '@libp2p/peer-id'
 import { createP2PNode, protectPubsubPeerDiscovery } from '../src/node.js'
 import { loadOrCreateIdentity } from '../src/identity.js'
-import { createTrysteroHub } from '../src/trystero.js'
 import { startRelay } from 'p2p-netcat/relay'
 import { protocolForService as protocolFromCliSubpath } from 'p2p-netcat/core'
 import {
-  decodeTrysteroAuthResponse,
-  encodeTrysteroAuthResponse,
+  createWebRtcActionHub,
+  decodeWebRtcAuthResponse,
+  encodeWebRtcAuthResponse,
   preferDialAddresses,
   protocolForService,
   relayedTargetAddress,
-  trysteroAuthPayload,
+  webRtcAuthPayload,
   validateService
 } from 'p2p-netcat-core'
 
@@ -98,23 +98,23 @@ test('QUIC имеет приоритет перед TCP, а relay остаётс
   assert.ok(preferDialAddresses(tcpAddress, relayAddress) < 0)
 })
 
-test('Trystero challenge криптографически привязан к ожидаемому PeerId', async () => {
+test('WebRTC challenge криптографически привязан к ожидаемому PeerId', async () => {
   const privateKey = await generateKeyPair('Ed25519')
   const peerId = peerIdFromPrivateKey(privateKey).toString()
   const challenge = crypto.getRandomValues(new Uint8Array(32))
-  const payload = trysteroAuthPayload(peerId, 31337, challenge)
-  const frame = encodeTrysteroAuthResponse(
+  const payload = webRtcAuthPayload(peerId, 31337, challenge)
+  const frame = encodeWebRtcAuthResponse(
     publicKeyToProtobuf(privateKey.publicKey),
     await privateKey.sign(payload)
   )
-  const response = decodeTrysteroAuthResponse(frame)
+  const response = decodeWebRtcAuthResponse(frame)
   const publicKey = publicKeyFromProtobuf(response.publicKey)
   assert.equal(peerIdFromPublicKey(publicKey).toString(), peerId)
   assert.equal(await publicKey.verify(payload, response.signature), true)
-  assert.equal(await publicKey.verify(trysteroAuthPayload(peerId, 31338, challenge), response.signature), false)
+  assert.equal(await publicKey.verify(webRtcAuthPayload(peerId, 31338, challenge), response.signature), false)
 })
 
-test('Trystero hub сохраняет тот же поток при кратком переподключении peer', async () => {
+test('общий WebRTC action hub сохраняет тот же поток при кратком переподключении peer', async () => {
   let leaveCount = 0
   const room = {
     makeAction () {
@@ -132,7 +132,7 @@ test('Trystero hub сохраняет тот же поток при кратко
   const opened = []
   const disconnected = []
   const reconnected = []
-  const hub = createTrysteroHub(room, {
+  const hub = createWebRtcActionHub(room, {
     reconnectGraceMs: 1_000,
     onStream: (stream, peerId) => opened.push({ stream, peerId }),
     onPeerDisconnected: peerId => disconnected.push(peerId),

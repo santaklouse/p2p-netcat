@@ -6,7 +6,7 @@ import {
   encodePtyData,
   encodePtyResize,
 } from "p2p-netcat-core";
-import { BrowserTrysteroClient } from "./trystero-client";
+import { BrowserWebRtcClient } from "./webrtc-client";
 
 export type ClientEvents = {
   onData: (bytes: Uint8Array) => void | Promise<void>;
@@ -163,8 +163,8 @@ export class BrowserP2PClient {
   private readonly events: ClientEvents;
   private readonly transportEvents: ClientEvents;
   private readonly worker: WorkerP2PClient;
-  private trystero: BrowserTrysteroClient | null = null;
-  private active: "worker" | "trystero" | null = null;
+  private webRtc: BrowserWebRtcClient | null = null;
+  private active: "worker" | "webrtc" | null = null;
   private interactive = false;
   private readonly ptyDecoder = new PtyFrameDecoder();
 
@@ -203,25 +203,25 @@ export class BrowserP2PClient {
       return;
     }
 
-    const trystero = new BrowserTrysteroClient(this.transportEvents);
-    this.trystero = trystero;
+    const webRtc = new BrowserWebRtcClient(this.transportEvents);
+    this.webRtc = webRtc;
     try {
       const winner = await Promise.any([
         this.worker.connect(targetPeerId, logicalPort, "", timeout).then(() => "worker" as const),
-        trystero.connect(targetPeerId, logicalPort, timeout * 1000).then(() => "trystero" as const),
+        webRtc.connect(targetPeerId, logicalPort, timeout * 1000).then(() => "webrtc" as const),
       ]);
       this.active = winner;
       if (winner === "worker") {
-        await trystero.stop();
-        this.trystero = null;
+        await webRtc.stop();
+        this.webRtc = null;
         this.events.onLog("Выбран libp2p IPFS-маршрут", "success");
       } else {
         this.worker.cancel();
-        this.events.onLog("Выбран прямой Trystero/WebRTC-канал", "success");
+        this.events.onLog("Выбран прямой WebRTC-канал", "success");
       }
     } catch (error) {
-      await trystero.stop();
-      this.trystero = null;
+      await webRtc.stop();
+      this.webRtc = null;
       const reasons = error instanceof AggregateError
         ? error.errors.map((item) => item instanceof Error ? item.message : String(item)).join("; ")
         : error instanceof Error ? error.message : String(error);
@@ -251,7 +251,7 @@ export class BrowserP2PClient {
   }
 
   async closeWrite() {
-    if (this.active === "trystero") return this.trystero!.closeWrite();
+    if (this.active === "webrtc") return this.webRtc!.closeWrite();
     return this.worker.closeWrite();
   }
 
@@ -261,13 +261,13 @@ export class BrowserP2PClient {
   }
 
   async stop() {
-    await Promise.allSettled([this.worker.stop(), this.trystero?.stop() ?? Promise.resolve()]);
+    await Promise.allSettled([this.worker.stop(), this.webRtc?.stop() ?? Promise.resolve()]);
     this.active = null;
-    this.trystero = null;
+    this.webRtc = null;
   }
 
   private async sendTransport(bytes: Uint8Array) {
-    if (this.active === "trystero") return this.trystero!.send(bytes);
+    if (this.active === "webrtc") return this.webRtc!.send(bytes);
     if (this.active === "worker") return this.worker.send(bytes);
     throw new Error("P2P-канал ещё не открыт");
   }

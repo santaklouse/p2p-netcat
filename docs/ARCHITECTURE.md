@@ -148,7 +148,7 @@ active.
 
 Trystero itself reports a peer leave after its WebRTC connection remains
 disconnected for five seconds. p2p-netcat does not translate that event into
-EOF immediately. `TrysteroStream` enters `reconnecting` for 120 seconds, keeps
+EOF immediately. `WebRtcStream` enters `reconnecting` for 120 seconds, keeps
 the async iterator open, and blocks bounded writes behind a peer-availability
 waiter. If the same Trystero peer ID joins the room again, the room action
 targets the replacement data channel and the existing logical stream resumes.
@@ -199,7 +199,7 @@ Interactive terminal output has a bounded, end-to-end pipeline:
    frames.
 2. The server sender counts queued bytes. At 512 KiB it calls `IPty.pause()`;
    once the queue falls to 128 KiB it calls `IPty.resume()`.
-3. A libp2p stream waits for `onDrain()`. A Trystero stream first negotiates
+3. A libp2p stream waits for `onDrain()`. A WebRTC stream first negotiates
    `flow:1`, then limits unacknowledged payload to 256 KiB.
 4. The receiver sends `ack:<bytes>` only when its async iterator advances after
    the consumer has processed the previous chunk. Peers without `flow:1`

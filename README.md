@@ -14,6 +14,8 @@ Amino DHT, mDNS, and Circuit Relay v2.
   backpressure, and failure handling;
 - [Installation guide](docs/INSTALLATION.md) — npm one-liner, first connection,
   updates, removal, identities, and troubleshooting;
+- [WebRTC migration away from Trystero](docs/WEBRTC_MIGRATION.md) — current
+  dependency boundary, native signaling design, and safe removal stages;
 - [Browser PWA guide](web/README.md) — build, GitHub Pages,
   `network-config.json`, and WSS relay configuration;
 - [Shared JavaScript library API](packages/core/README.md) — browser-safe

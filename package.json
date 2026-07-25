@@ -33,7 +33,7 @@
   "scripts": {
     "start": "node ./bin/p2p-nc.js",
     "test": "node --test",
-    "lint": "node --check ./bin/p2p-nc.js && node --check ./scripts/fix-node-pty-permissions.js && node --check ./src/runtime.js && node --check ./src/core.js && node --check ./src/cli.js && node --check ./src/node.js && node --check ./src/discovery.js && node --check ./src/forwarding.js && node --check ./src/pty.js && node --check ./src/relay.js && node --check ./src/session.js && node --check ./src/tor.js && node --check ./src/trystero.js && npm --prefix packages/core run lint",
+    "lint": "node --check ./bin/p2p-nc.js && node --check ./scripts/fix-node-pty-permissions.js && node --check ./src/runtime.js && node --check ./src/core.js && node --check ./src/cli.js && node --check ./src/node.js && node --check ./src/discovery.js && node --check ./src/forwarding.js && node --check ./src/pty.js && node --check ./src/relay.js && node --check ./src/session.js && node --check ./src/tor.js && node --check ./src/webrtc.js && node --check ./src/trystero.js && npm --prefix packages/core run lint",
     "prepublishOnly": "npm test && npm run lint",
     "postinstall": "node ./scripts/fix-node-pty-permissions.js"
   },

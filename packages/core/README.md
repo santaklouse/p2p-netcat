@@ -19,8 +19,9 @@ The package owns:
 - the application PubSub discovery topic and interval;
 - the common WebRTC STUN pool;
 - browser-safe PTY data/resize framing and incremental decoding;
-- negotiated Trystero byte-window flow control, acknowledgements, keepalive,
-  EOF, and abort semantics.
+- signaling-independent WebRTC action mapping;
+- negotiated WebRTC byte-window flow control, acknowledgements, keepalive, EOF,
+  abort, and reconnect semantics.
 
 Creating a libp2p node, querying the DHT, Web Worker RPC, and stdin/stdout remain
 in platform-specific packages.
@@ -47,11 +48,12 @@ in platform-specific packages.
 | `PUBSUB_DISCOVERY_INTERVAL_MS` | Announcement repeat interval |
 | `DEFAULT_STUN_URLS` | Immutable shared STUN URL list |
 | `defaultRtcConfiguration()` | Returns a fresh WebRTC configuration using the shared STUN pool |
-| `trysteroRoomId(peerId, service)` | Builds the deterministic WebRTC room |
-| `trysteroAuthPayload(...)` | Builds a domain-separated signed challenge |
-| `encodeTrysteroAuthResponse(...)` | Encodes the public key and signature |
-| `decodeTrysteroAuthResponse(...)` | Validates and decodes the response |
-| `TrysteroStream` | Adapts an action channel to backpressure and EOF semantics |
+| `webRtcRoomId(peerId, service)` | Builds the deterministic WebRTC room |
+| `webRtcAuthPayload(...)` | Builds a domain-separated signed challenge |
+| `encodeWebRtcAuthResponse(...)` | Encodes the public key and signature |
+| `decodeWebRtcAuthResponse(...)` | Validates and decodes the response |
+| `WebRtcStream` | Adapts an action channel to backpressure, recovery, and EOF semantics |
+| `createWebRtcActionHub(room, options)` | Maps the data/control actions and peer lifecycle to shared streams |
 
 The order is WebRTC Direct, QUIC v1, WebTransport, WSS, WS, TCP, other
 addresses, and Circuit Relay. A transport appearing in the common ranking does
@@ -63,7 +65,7 @@ contains the five Google STUN endpoints plus CounterPath, Sipgate, VoIPBuster,
 and InternetCalls. STUN discovers NAT mappings; it is not a TURN relay and
 cannot guarantee a direct route through symmetric or restrictive NATs.
 
-`TrysteroStream` advertises flow-control support with `flow:1`. Two current
+`WebRtcStream` advertises flow-control support with `flow:1`. Two current
 peers limit unacknowledged data to 256 KiB by default and send `ack:<bytes>`
 only when the async consumer advances after processing a chunk. The handshake
 is backward compatible: if the remote side does not advertise support, the
@@ -75,8 +77,14 @@ unexpected WebRTC peer loss into EOF. While `connectionStatus` is
 `reconnecting`, writes remain in the existing bounded queue.
 `peerReconnected()` resumes that same logical stream and resets stale flow
 credits. The default recovery window used by p2p-netcat is
-`TRYSTERO_RECONNECT_GRACE_MS` (120 seconds). Explicit EOF and `abort()` still
+`WEBRTC_RECONNECT_GRACE_MS` (120 seconds). Explicit EOF and `abort()` still
 close immediately.
+
+The former `TrysteroStream`, `trysteroRoomId()`, authentication helpers, and
+constants remain aliases during the dependency migration. New code should use
+the implementation-neutral WebRTC names. See the
+[migration document](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.md)
+for the remaining signaling work.
 
 Install the standalone browser-safe package when it is the only functionality
 needed:

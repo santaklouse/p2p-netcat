@@ -23,10 +23,10 @@ test("собирается как статическая PWA без сервер
 });
 
 test("сетевой стек работает в отдельном Web Worker", async () => {
-  const [worker, client, trystero, core, page, terminal, main, styles] = await Promise.all([
+  const [worker, client, webRtc, core, page, terminal, main, styles] = await Promise.all([
     readFile(new URL("../app/p2p.worker.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/p2p-client.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/trystero-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/webrtc-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../../packages/core/src/index.js", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/browser-terminal.tsx", import.meta.url), "utf8"),
@@ -38,6 +38,8 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.doesNotMatch(worker, /const PROTOCOL_PREFIX/);
   assert.match(core, /\/p2p-netcat\/1\.0\.0/);
   assert.match(core, /class PtyFrameDecoder/);
+  assert.match(core, /class WebRtcStream/);
+  assert.match(core, /createWebRtcActionHub/);
   assert.match(core, /encodePtyData/);
   assert.match(core, /encodePtyResize/);
   assert.match(worker, /circuitRelayTransport\(\)/);
@@ -53,10 +55,11 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.match(worker, /Откройте приложение по HTTPS/);
   assert.match(client, /new Worker\(new URL/);
   assert.match(client, /Promise\.any/);
-  assert.match(trystero, /@trystero-p2p\/torrent/);
-  assert.match(trystero, /trysteroAuthPayload/);
-  assert.match(trystero, /peerIdFromPublicKey/);
-  assert.match(trystero, /defaultRtcConfiguration/);
+  assert.match(webRtc, /@trystero-p2p\/torrent/);
+  assert.match(webRtc, /webRtcAuthPayload/);
+  assert.match(webRtc, /peerIdFromPublicKey/);
+  assert.match(webRtc, /defaultRtcConfiguration/);
+  assert.match(webRtc, /createWebRtcActionHub/);
   assert.match(core, /stun:stun\.l\.google\.com:19302/);
   assert.match(core, /stun:stun\.internetcalls\.com:3478/);
   assert.match(client, /transfer/);
@@ -66,15 +69,14 @@ test("сетевой стек работает в отдельном Web Worker"
   assert.match(worker, /connectWithTimeout/);
   assert.match(worker, /libp2p не установил соединение за/);
   assert.match(terminal, /terminal\.write\(bytes, resolve\)/);
-  assert.match(trystero, /defaultRelayUrls/);
-  assert.match(trystero, /trickleIce: true/);
+  assert.match(webRtc, /defaultRelayUrls/);
+  assert.match(webRtc, /trickleIce: true/);
   assert.match(core, /flowWindowBytes/);
   assert.match(core, /ack:/);
   assert.match(core, /peerDisconnected/);
   assert.match(core, /peerReconnected/);
-  assert.match(core, /TRYSTERO_RECONNECT_GRACE_MS/);
-  assert.match(trystero, /connectionStatus === "reconnecting"/);
-  assert.match(trystero, /WebRTC-канал восстановлен/);
+  assert.match(core, /WEBRTC_RECONNECT_GRACE_MS/);
+  assert.match(webRtc, /WebRTC-канал восстановлен/);
   assert.match(page, /reconnecting/);
   assert.match(page, /Необязательно · используется автопоиск/);
   assert.doesNotMatch(page, /!targetPeerId \|\| !relayAddress/);

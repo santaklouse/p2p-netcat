@@ -14,6 +14,8 @@ Relay v2.
   backpressure и обработка ошибок;
 - [Руководство по установке](docs/INSTALLATION.RU.md) — npm one-liner, первое
   подключение, обновление, удаление, identity и диагностика;
+- [Миграция WebRTC без Trystero](docs/WEBRTC_MIGRATION.RU.md) — текущая граница
+  зависимости, собственный signaling и безопасные этапы удаления;
 - [Браузерный PWA-клиент](web/README.RU.md) — сборка, GitHub Pages,
   `network-config.json` и настройка WSS relay;
 - [API общей JavaScript-библиотеки](packages/core/README.RU.md) — browser-safe

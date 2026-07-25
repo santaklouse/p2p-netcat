@@ -8,19 +8,21 @@ import {
   PUBSUB_DISCOVERY_TOPIC,
   PtyFrameDecoder,
   TrysteroStream,
+  WebRtcStream,
   browserDialableAddress,
   createRelayDialPlan,
-  decodeTrysteroAuthResponse,
+  createWebRtcActionHub,
+  decodeWebRtcAuthResponse,
   defaultRtcConfiguration,
   decodePtyResize,
   encodePtyData,
   encodePtyResize,
-  encodeTrysteroAuthResponse,
+  encodeWebRtcAuthResponse,
   normalizeRelayAddress,
   preferDialAddresses,
   protocolForService,
-  trysteroAuthPayload,
-  trysteroRoomId,
+  webRtcAuthPayload,
+  webRtcRoomId,
   validateService
 } from '../src/index.js'
 
@@ -104,21 +106,62 @@ test('общая сортировка предпочитает WebRTC и QUIC, r
   assert.ok(preferDialAddresses('/ip4/127.0.0.1/tcp/1', '/ip4/127.0.0.1/tcp/2/ws/p2p/relay/p2p-circuit') < 0)
 })
 
-test('Trystero room и authentication frame детерминированы', async () => {
+test('WebRTC room и authentication frame детерминированы', async () => {
   const targetId = '12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9'
   const challenge = new Uint8Array(32).fill(7)
-  assert.equal(trysteroRoomId(targetId, 31337), `${targetId}:31337`)
-  assert.ok(trysteroAuthPayload(targetId, 31337, challenge).byteLength > challenge.byteLength)
-  const encoded = encodeTrysteroAuthResponse(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]))
-  const decoded = decodeTrysteroAuthResponse(encoded)
+  assert.equal(webRtcRoomId(targetId, 31337), `${targetId}:31337`)
+  assert.ok(webRtcAuthPayload(targetId, 31337, challenge).byteLength > challenge.byteLength)
+  const encoded = encodeWebRtcAuthResponse(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]))
+  const decoded = decodeWebRtcAuthResponse(encoded)
   assert.deepEqual([...decoded.publicKey], [1, 2, 3])
   assert.deepEqual([...decoded.signature], [4, 5])
 })
 
-test('Trystero stream сохраняет порядок, backpressure и EOF', async () => {
+test('legacy Trystero stream export remains an alias during migration', () => {
+  assert.equal(TrysteroStream, WebRtcStream)
+})
+
+test('WebRTC action hub owns action mapping and reconnects the same stream', async () => {
+  let leaveCount = 0
+  const room = {
+    makeAction () {
+      return {
+        async send () {},
+        onMessage: null
+      }
+    },
+    async leave () {
+      leaveCount += 1
+    },
+    onPeerJoin: null,
+    onPeerLeave: null
+  }
+  const opened = []
+  const reconnected = []
+  const hub = createWebRtcActionHub(room, {
+    reconnectGraceMs: 1_000,
+    onStream: (stream, peerId) => opened.push({ stream, peerId }),
+    onPeerReconnected: peerId => reconnected.push(peerId)
+  })
+
+  room.onPeerJoin('remote-1')
+  const stream = opened[0].stream
+  room.onPeerLeave('remote-1')
+  room.onPeerJoin('remote-1')
+
+  assert.equal(opened.length, 1)
+  assert.equal(stream.connectionStatus, 'connected')
+  assert.deepEqual(reconnected, ['remote-1'])
+
+  await hub.close()
+  assert.equal(leaveCount, 1)
+  assert.equal(stream.status, 'closed')
+})
+
+test('WebRTC stream сохраняет порядок, backpressure и EOF', async () => {
   const sent = []
   const controls = []
-  const stream = new TrysteroStream({
+  const stream = new WebRtcStream({
     sendData: async bytes => sent.push([...bytes]),
     sendControl: async control => controls.push(control),
     keepAliveIntervalMs: 0
@@ -136,16 +179,16 @@ test('Trystero stream сохраняет порядок, backpressure и EOF', a
   assert.equal(stream.status, 'closed')
 })
 
-test('Trystero stream limits unacknowledged output until the consumer advances', async () => {
+test('WebRTC stream limits unacknowledged output until the consumer advances', async () => {
   let sender
   let receiver
-  sender = new TrysteroStream({
+  sender = new WebRtcStream({
     flowWindowBytes: 4,
     keepAliveIntervalMs: 0,
     sendData: bytes => receiver.receiveData(bytes),
     sendControl: control => receiver.receiveControl(control)
   })
-  receiver = new TrysteroStream({
+  receiver = new WebRtcStream({
     flowWindowBytes: 4,
     keepAliveIntervalMs: 0,
     sendData: bytes => sender.receiveData(bytes),
@@ -182,10 +225,10 @@ test('Trystero stream limits unacknowledged output until the consumer advances',
   await receiver.close()
 })
 
-test('Trystero stream preserves queued data while the peer reconnects', async () => {
+test('WebRTC stream preserves queued data while the peer reconnects', async () => {
   const sent = []
   const controls = []
-  const stream = new TrysteroStream({
+  const stream = new WebRtcStream({
     keepAliveIntervalMs: 0,
     sendData: async bytes => sent.push([...bytes]),
     sendControl: async control => controls.push(control)
@@ -212,8 +255,8 @@ test('Trystero stream preserves queued data while the peer reconnects', async ()
   await stream.close()
 })
 
-test('Trystero stream closes only after the reconnect grace period expires', async () => {
-  const stream = new TrysteroStream({
+test('WebRTC stream closes only after the reconnect grace period expires', async () => {
+  const stream = new WebRtcStream({
     keepAliveIntervalMs: 0,
     sendData: async () => {},
     sendControl: async () => {}
@@ -227,10 +270,10 @@ test('Trystero stream closes only after the reconnect grace period expires', asy
   assert.equal(stream.connectionStatus, 'disconnected')
 })
 
-test('Trystero stream retries a write that raced with peer disconnection', async () => {
+test('WebRTC stream retries a write that raced with peer disconnection', async () => {
   let attempts = 0
   const sent = []
-  const stream = new TrysteroStream({
+  const stream = new WebRtcStream({
     keepAliveIntervalMs: 0,
     sendData: async bytes => {
       attempts += 1

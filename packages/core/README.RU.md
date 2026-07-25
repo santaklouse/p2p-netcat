@@ -20,8 +20,9 @@ JavaScript-клиентами.
 - общую тему и интервал PubSub discovery;
 - общий пул STUN-серверов WebRTC;
 - browser-safe кадрирование PTY-данных/resize и инкрементальное декодирование;
-- согласованный flow control Trystero с окном байтов, подтверждениями, keepalive,
-  EOF и abort.
+- независимое от signaling сопоставление WebRTC actions;
+- согласованный flow control WebRTC с окном байтов, подтверждениями, keepalive,
+  EOF, abort и восстановлением.
 
 Создание libp2p-узла, DHT, Web Worker RPC и stdin/stdout остаются в платформенных
 пакетах.
@@ -48,11 +49,12 @@ JavaScript-клиентами.
 | `PUBSUB_DISCOVERY_INTERVAL_MS` | Интервал повторной публикации объявления |
 | `DEFAULT_STUN_URLS` | Неизменяемый общий список STUN URL |
 | `defaultRtcConfiguration()` | Возвращает новую WebRTC-конфигурацию с общим STUN-пулом |
-| `trysteroRoomId(peerId, service)` | Строит детерминированную WebRTC room |
-| `trysteroAuthPayload(...)` | Строит подписываемый challenge с domain separation |
-| `encodeTrysteroAuthResponse(...)` | Кодирует публичный ключ и подпись |
-| `decodeTrysteroAuthResponse(...)` | Проверяет и декодирует ответ |
-| `TrysteroStream` | Адаптирует action-канал к потоку с backpressure и EOF |
+| `webRtcRoomId(peerId, service)` | Строит детерминированную WebRTC room |
+| `webRtcAuthPayload(...)` | Строит подписываемый challenge с domain separation |
+| `encodeWebRtcAuthResponse(...)` | Кодирует публичный ключ и подпись |
+| `decodeWebRtcAuthResponse(...)` | Проверяет и декодирует ответ |
+| `WebRtcStream` | Адаптирует action-канал к потоку с backpressure, recovery и EOF |
+| `createWebRtcActionHub(room, options)` | Связывает data/control actions и lifecycle пира с общими потоками |
 
 Приоритет сортировки: WebRTC Direct, QUIC v1, WebTransport, WSS, WS, TCP,
 прочие адреса и Circuit Relay. Наличие позиции в общем рейтинге не означает,
@@ -64,7 +66,7 @@ JavaScript-клиентами.
 InternetCalls. STUN помогает определить NAT mapping, но не является TURN relay
 и не гарантирует прямое соединение через symmetric или жёсткий NAT.
 
-`TrysteroStream` объявляет поддержку flow control сообщением `flow:1`. Два
+`WebRtcStream` объявляет поддержку flow control сообщением `flow:1`. Два
 актуальных пира по умолчанию ограничивают неподтверждённые данные окном 256 КиБ
 и отправляют `ack:<bytes>` лишь тогда, когда async consumer перешёл к следующему
 блоку после обработки текущего. Согласование обратно совместимо: старый пир без
@@ -76,8 +78,13 @@ InternetCalls. STUN помогает определить NAT mapping, но не
 равен `reconnecting`, запись остаётся в существующей ограниченной очереди.
 `peerReconnected()` продолжает тот же логический поток и сбрасывает устаревшие
 flow credits. p2p-netcat по умолчанию использует
-`TRYSTERO_RECONNECT_GRACE_MS` — 120 секунд. Явный EOF и `abort()` по-прежнему
+`WEBRTC_RECONNECT_GRACE_MS` — 120 секунд. Явный EOF и `abort()` по-прежнему
 закрывают поток немедленно.
+
+Прежние `TrysteroStream`, `trysteroRoomId()`, authentication helpers и
+константы временно сохранены как aliases на период миграции. В новом коде нужно
+использовать независимые от реализации WebRTC-имена. Оставшаяся signaling-часть
+описана в [документе миграции](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.RU.md).
 
 Если нужно только browser-safe ядро, установите отдельный пакет:
 

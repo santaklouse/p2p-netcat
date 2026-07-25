@@ -4,11 +4,16 @@ import { multiaddr } from '@multiformats/multiaddr'
 export const APP_NAME = 'p2p-netcat'
 export const PROTOCOL_PREFIX = '/p2p-netcat/1.0.0'
 export const DEFAULT_SERVICE = 31337
-export const TRYSTERO_APP_ID = 'io.github.santaklouse.p2p-netcat.v1'
-export const TRYSTERO_AUTH_VERSION = 1
+export const WEBRTC_APP_ID = 'io.github.santaklouse.p2p-netcat.v1'
+export const WEBRTC_AUTH_VERSION = 1
 export const PUBSUB_DISCOVERY_TOPIC = 'io.github.santaklouse.p2p-netcat.peer-discovery.v1'
 export const PUBSUB_DISCOVERY_INTERVAL_MS = 10_000
-export const TRYSTERO_RECONNECT_GRACE_MS = 120_000
+export const WEBRTC_RECONNECT_GRACE_MS = 120_000
+export const WEBRTC_DATA_ACTION = 'pnc-data-v1'
+export const WEBRTC_CONTROL_ACTION = 'pnc-ctl-v1'
+export const TRYSTERO_APP_ID = WEBRTC_APP_ID
+export const TRYSTERO_AUTH_VERSION = WEBRTC_AUTH_VERSION
+export const TRYSTERO_RECONNECT_GRACE_MS = WEBRTC_RECONNECT_GRACE_MS
 export const PTY_FRAME_DATA = 0
 export const PTY_FRAME_RESIZE = 1
 export const PTY_FRAME_HEADER_LENGTH = 5
@@ -188,27 +193,27 @@ export function browserDialableAddress (address, { secureContext = false } = {})
   return !secureContext || isSecureWebSocketAddress(value)
 }
 
-export function trysteroRoomId (peerId, service = DEFAULT_SERVICE) {
+export function webRtcRoomId (peerId, service = DEFAULT_SERVICE) {
   return `${normalizePeerId(peerId)}:${validateService(service)}`
 }
 
-export function trysteroAuthPayload (peerId, service, challenge) {
+export function webRtcAuthPayload (peerId, service, challenge) {
   const nonce = asBytes(challenge)
-  if (nonce.byteLength !== 32) throw new Error(`Trystero challenge must contain 32 bytes, received: ${nonce.byteLength}`)
-  const context = new TextEncoder().encode(`p2p-netcat/trystero-auth/v1\0${trysteroRoomId(peerId, service)}\0`)
+  if (nonce.byteLength !== 32) throw new Error(`WebRTC challenge must contain 32 bytes, received: ${nonce.byteLength}`)
+  const context = new TextEncoder().encode(`p2p-netcat/trystero-auth/v1\0${webRtcRoomId(peerId, service)}\0`)
   const payload = new Uint8Array(context.byteLength + nonce.byteLength)
   payload.set(context)
   payload.set(nonce, context.byteLength)
   return payload
 }
 
-export function encodeTrysteroAuthResponse (publicKey, signature) {
+export function encodeWebRtcAuthResponse (publicKey, signature) {
   const key = asBytes(publicKey)
   const proof = asBytes(signature)
-  if (key.byteLength > 0xffff || proof.byteLength > 0xffff) throw new Error('Trystero authentication response is too large')
+  if (key.byteLength > 0xffff || proof.byteLength > 0xffff) throw new Error('WebRTC authentication response is too large')
   const response = new Uint8Array(5 + key.byteLength + proof.byteLength)
   const view = new DataView(response.buffer)
-  response[0] = TRYSTERO_AUTH_VERSION
+  response[0] = WEBRTC_AUTH_VERSION
   view.setUint16(1, key.byteLength)
   view.setUint16(3, proof.byteLength)
   response.set(key, 5)
@@ -216,20 +221,20 @@ export function encodeTrysteroAuthResponse (publicKey, signature) {
   return response
 }
 
-export function decodeTrysteroAuthResponse (value) {
+export function decodeWebRtcAuthResponse (value) {
   const response = asBytes(value)
-  if (response.byteLength < 5 || response[0] !== TRYSTERO_AUTH_VERSION) throw new Error('Unsupported Trystero authentication response')
+  if (response.byteLength < 5 || response[0] !== WEBRTC_AUTH_VERSION) throw new Error('Unsupported WebRTC authentication response')
   const view = new DataView(response.buffer, response.byteOffset, response.byteLength)
   const publicKeyLength = view.getUint16(1)
   const signatureLength = view.getUint16(3)
-  if (5 + publicKeyLength + signatureLength !== response.byteLength) throw new Error('Malformed Trystero authentication response')
+  if (5 + publicKeyLength + signatureLength !== response.byteLength) throw new Error('Malformed WebRTC authentication response')
   return Object.freeze({
     publicKey: response.slice(5, 5 + publicKeyLength),
     signature: response.slice(5 + publicKeyLength)
   })
 }
 
-export class TrysteroStream {
+export class WebRtcStream {
   status = 'open'
   writeStatus = 'writable'
   connectionStatus = 'connected'
@@ -279,14 +284,14 @@ export class TrysteroStream {
   }
 
   send (chunk) {
-    if (this.writeStatus !== 'writable') throw new Error('Trystero stream is not writable')
+    if (this.writeStatus !== 'writable') throw new Error('WebRTC stream is not writable')
     const bytes = asBytes(chunk).slice()
     this.#pending = this.#pending.then(async () => {
       for (;;) {
         await this.#waitForPeer()
         await this.#waitForFlowWindow(bytes.byteLength)
         await this.#waitForPeer()
-        if (this.writeStatus === 'closed') throw new Error('Trystero stream is not writable')
+        if (this.writeStatus === 'closed') throw new Error('WebRTC stream is not writable')
         if (this.#flowEnabled) this.#inFlightBytes += bytes.byteLength
         try {
           await this.#sendData(bytes)
@@ -315,7 +320,7 @@ export class TrysteroStream {
     this.#maybeFinalize()
   }
 
-  abort (error = new Error('Trystero stream aborted')) {
+  abort (error = new Error('WebRTC stream aborted')) {
     if (this.status === 'closed') return
     this.writeStatus = 'closed'
     this.status = 'closed'
@@ -339,7 +344,7 @@ export class TrysteroStream {
     } else if (control === 'abort') {
       this.status = 'closed'
       this.writeStatus = 'closed'
-      const error = new Error('Remote Trystero peer aborted the stream')
+      const error = new Error('Remote WebRTC peer aborted the stream')
       this.#fail(error)
       this.#wakeFlowWaiters(error)
       this.#finalize()
@@ -360,7 +365,7 @@ export class TrysteroStream {
     }
   }
 
-  peerDisconnected (graceMs = TRYSTERO_RECONNECT_GRACE_MS) {
+  peerDisconnected (graceMs = WEBRTC_RECONNECT_GRACE_MS) {
     if (this.status === 'closed' || this.connectionStatus === 'reconnecting') return
     if (!Number.isSafeInteger(graceMs) || graceMs < 0) {
       throw new RangeError('graceMs must be a non-negative integer')
@@ -392,7 +397,7 @@ export class TrysteroStream {
 
   peerLeft () {
     if (this.status === 'closed') return
-    const error = new Error('Remote Trystero peer left')
+    const error = new Error('Remote WebRTC peer left')
     clearTimeout(this.#peerReconnectTimer)
     this.#peerReconnectTimer = undefined
     this.connectionStatus = 'disconnected'
@@ -444,18 +449,18 @@ export class TrysteroStream {
       await new Promise((resolve, reject) => this.#flowWaiters.push({ resolve, reject }))
     }
     if (this.status !== 'open' || this.writeStatus === 'closed') {
-      throw new Error('Trystero stream is not writable')
+      throw new Error('WebRTC stream is not writable')
     }
   }
 
   async #waitForPeer () {
     if (this.connectionStatus === 'connected') return
     if (this.status !== 'open' || this.connectionStatus === 'disconnected') {
-      throw new Error('Trystero stream is not writable')
+      throw new Error('WebRTC stream is not writable')
     }
     await new Promise((resolve, reject) => this.#peerWaiters.push({ resolve, reject }))
     if (this.status !== 'open' || this.connectionStatus !== 'connected') {
-      throw new Error('Trystero stream is not writable')
+      throw new Error('WebRTC stream is not writable')
     }
   }
 
@@ -504,11 +509,88 @@ export class TrysteroStream {
     this.#finalized = true
     clearInterval(this.#keepAliveTimer)
     clearTimeout(this.#peerReconnectTimer)
-    this.#wakeFlowWaiters(new Error('Trystero stream is closed'))
-    this.#wakePeerWaiters(new Error('Trystero stream is closed'))
+    this.#wakeFlowWaiters(new Error('WebRTC stream is closed'))
+    this.#wakePeerWaiters(new Error('WebRTC stream is closed'))
     this.#onFinalize()
   }
 }
+
+export const trysteroRoomId = webRtcRoomId
+export const trysteroAuthPayload = webRtcAuthPayload
+export const encodeTrysteroAuthResponse = encodeWebRtcAuthResponse
+export const decodeTrysteroAuthResponse = decodeWebRtcAuthResponse
+export const TrysteroStream = WebRtcStream
+
+export function createWebRtcActionHub (room, {
+  onStream,
+  onStreamClosed,
+  onPeerDisconnected,
+  onPeerReconnected,
+  leaveAfterStream = false,
+  reconnectGraceMs = WEBRTC_RECONNECT_GRACE_MS,
+  release = () => {}
+} = {}) {
+  if (room == null || typeof room.makeAction !== 'function' || typeof room.leave !== 'function') {
+    throw new TypeError('A WebRTC action room with makeAction() and leave() is required')
+  }
+
+  const streams = new Map()
+  const data = room.makeAction(WEBRTC_DATA_ACTION)
+  const control = room.makeAction(WEBRTC_CONTROL_ACTION)
+  let closePromise
+
+  const close = () => {
+    closePromise ??= Promise.resolve().then(async () => {
+      for (const stream of streams.values()) stream.peerLeft()
+      streams.clear()
+      try {
+        await room.leave()
+      } finally {
+        release()
+      }
+    })
+    return closePromise
+  }
+
+  const streamFor = peerId => {
+    let stream = streams.get(peerId)
+    if (stream != null) return stream
+    stream = new WebRtcStream({
+      sendData: chunk => data.send(chunk, { target: peerId }),
+      sendControl: value => control.send(value, { target: peerId }),
+      onFinalize: () => {
+        streams.delete(peerId)
+        onStreamClosed?.(peerId, stream)
+        if (leaveAfterStream) void close()
+      }
+    })
+    streams.set(peerId, stream)
+    return stream
+  }
+
+  data.onMessage = (chunk, { peerId }) => streamFor(peerId).receiveData(asBytes(chunk))
+  control.onMessage = (value, { peerId }) => streamFor(peerId).receiveControl(String(value))
+  room.onPeerJoin = peerId => {
+    const existing = streams.get(peerId)
+    if (existing != null) {
+      if (existing.connectionStatus === 'reconnecting' && existing.peerReconnected()) {
+        onPeerReconnected?.(peerId, existing)
+      }
+      return
+    }
+    onStream?.(streamFor(peerId), peerId)
+  }
+  room.onPeerLeave = peerId => {
+    const stream = streams.get(peerId)
+    if (stream == null) return
+    stream.peerDisconnected(reconnectGraceMs)
+    onPeerDisconnected?.(peerId, stream)
+  }
+
+  return Object.freeze({ streamFor, close })
+}
+
+export const createTrysteroHub = createWebRtcActionHub
 
 function addressText (address) {
   if (address?.multiaddr != null) return address.multiaddr.toString()

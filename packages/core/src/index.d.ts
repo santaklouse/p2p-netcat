@@ -3,11 +3,16 @@ import type { Multiaddr } from "@multiformats/multiaddr";
 export const APP_NAME: "p2p-netcat";
 export const PROTOCOL_PREFIX: "/p2p-netcat/1.0.0";
 export const DEFAULT_SERVICE: 31337;
-export const TRYSTERO_APP_ID: "io.github.santaklouse.p2p-netcat.v1";
-export const TRYSTERO_AUTH_VERSION: 1;
+export const WEBRTC_APP_ID: "io.github.santaklouse.p2p-netcat.v1";
+export const WEBRTC_AUTH_VERSION: 1;
 export const PUBSUB_DISCOVERY_TOPIC: "io.github.santaklouse.p2p-netcat.peer-discovery.v1";
 export const PUBSUB_DISCOVERY_INTERVAL_MS: 10000;
-export const TRYSTERO_RECONNECT_GRACE_MS: 120000;
+export const WEBRTC_RECONNECT_GRACE_MS: 120000;
+export const WEBRTC_DATA_ACTION: "pnc-data-v1";
+export const WEBRTC_CONTROL_ACTION: "pnc-ctl-v1";
+export const TRYSTERO_APP_ID: typeof WEBRTC_APP_ID;
+export const TRYSTERO_AUTH_VERSION: typeof WEBRTC_AUTH_VERSION;
+export const TRYSTERO_RECONNECT_GRACE_MS: typeof WEBRTC_RECONNECT_GRACE_MS;
 export const PTY_FRAME_DATA: 0;
 export const PTY_FRAME_RESIZE: 1;
 export const PTY_FRAME_HEADER_LENGTH: 5;
@@ -64,12 +69,16 @@ export function createRelayDialPlan(input: {
 export function addressRank(address: AddressLike): number;
 export function preferDialAddresses(a: AddressLike, b: AddressLike): number;
 export function browserDialableAddress(address: AddressLike, options?: { secureContext?: boolean }): boolean;
-export function trysteroRoomId(peerId: unknown, service?: unknown): string;
-export function trysteroAuthPayload(peerId: unknown, service: unknown, challenge: ArrayBuffer | ArrayBufferView): Uint8Array;
-export function encodeTrysteroAuthResponse(publicKey: ArrayBuffer | ArrayBufferView, signature: ArrayBuffer | ArrayBufferView): Uint8Array;
-export function decodeTrysteroAuthResponse(value: ArrayBuffer | ArrayBufferView): Readonly<{ publicKey: Uint8Array; signature: Uint8Array }>;
+export function webRtcRoomId(peerId: unknown, service?: unknown): string;
+export function webRtcAuthPayload(peerId: unknown, service: unknown, challenge: ArrayBuffer | ArrayBufferView): Uint8Array;
+export function encodeWebRtcAuthResponse(publicKey: ArrayBuffer | ArrayBufferView, signature: ArrayBuffer | ArrayBufferView): Uint8Array;
+export function decodeWebRtcAuthResponse(value: ArrayBuffer | ArrayBufferView): Readonly<{ publicKey: Uint8Array; signature: Uint8Array }>;
+export const trysteroRoomId: typeof webRtcRoomId;
+export const trysteroAuthPayload: typeof webRtcAuthPayload;
+export const encodeTrysteroAuthResponse: typeof encodeWebRtcAuthResponse;
+export const decodeTrysteroAuthResponse: typeof decodeWebRtcAuthResponse;
 
-export class TrysteroStream implements AsyncIterable<Uint8Array> {
+export class WebRtcStream implements AsyncIterable<Uint8Array> {
   status: "open" | "closed";
   writeStatus: "writable" | "closing" | "closed";
   connectionStatus: "connected" | "reconnecting" | "disconnected";
@@ -91,3 +100,32 @@ export class TrysteroStream implements AsyncIterable<Uint8Array> {
   peerLeft(): void;
   [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
 }
+
+export { WebRtcStream as TrysteroStream };
+
+export type WebRtcActionContext = { peerId: string };
+export type WebRtcAction = {
+  send(value: unknown, options?: { target?: string | string[] }): void | Promise<void>;
+  onMessage: ((value: unknown, context: WebRtcActionContext) => void) | null;
+};
+export type WebRtcActionRoom = {
+  makeAction(namespace: string): WebRtcAction;
+  leave(): void | Promise<void>;
+  onPeerJoin: ((peerId: string) => void) | null;
+  onPeerLeave: ((peerId: string) => void) | null;
+};
+export type WebRtcActionHub = Readonly<{
+  streamFor(peerId: string): WebRtcStream;
+  close(): Promise<void>;
+}>;
+export type WebRtcActionHubOptions = {
+  onStream?: (stream: WebRtcStream, peerId: string) => void;
+  onStreamClosed?: (peerId: string, stream: WebRtcStream) => void;
+  onPeerDisconnected?: (peerId: string, stream: WebRtcStream) => void;
+  onPeerReconnected?: (peerId: string, stream: WebRtcStream) => void;
+  leaveAfterStream?: boolean;
+  reconnectGraceMs?: number;
+  release?: () => void;
+};
+export function createWebRtcActionHub(room: WebRtcActionRoom, options?: WebRtcActionHubOptions): WebRtcActionHub;
+export const createTrysteroHub: typeof createWebRtcActionHub;

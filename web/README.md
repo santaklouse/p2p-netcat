@@ -57,13 +57,13 @@ architecture runs no server-side JavaScript.
 Large terminal output uses two bounded flow-control layers. The Worker stops
 reading a libp2p stream after 512 KiB is waiting in the UI and resumes below
 128 KiB. The main thread acknowledges each block only from xterm's
-`Terminal.write` completion callback. On Trystero, the shared core additionally
+`Terminal.write` completion callback. On WebRTC, the shared core additionally
 negotiates a 256 KiB unacknowledged-byte window. Interactive output is not kept
 in the downloadable response buffer, so a long-running shell does not retain
 its complete history in JavaScript memory; xterm's configured scrollback
 remains the visible history.
 
-A Trystero peer loss is not treated as PTY EOF immediately. The UI changes to
+A WebRTC peer loss is not treated as PTY EOF immediately. The UI changes to
 `Reconnecting`, the server keeps the existing shell, and bounded writes wait
 for the same peer for up to 120 seconds. If Trystero rebuilds the WebRTC data
 channel during that window, the old stream and PTY continue. Merely changing
