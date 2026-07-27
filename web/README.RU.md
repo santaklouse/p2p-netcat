@@ -87,6 +87,9 @@ WebRTC соревнуёт подписанные Nostr events и WebTorrent trac
 Trystero запускается через четыре секунды только как compatibility fallback.
 С pairing token Worker запрашивает только provider CID из секрета, native
 signaling шифрует SDP/ICE, а Trystero отключается.
+Расширенный переключатель **Только native WebRTC** или `?native-only=1`
+отключает Trystero и в обычном PeerId-режиме для migration/soak testing. Он не
+отключает параллельный маршрут Worker/libp2p.
 Worker слушает подписанные объявления в отдельной GossipSub-теме приложения,
 запрашивает адрес PeerId через `https://delegated-ipfs.dev/routing/v1`, затем
 использует DHT как fallback. Первый аутентифицированный канал побеждает.
@@ -128,12 +131,14 @@ Relay p2p-netcat по умолчанию участвует в теме, поэ�
 может также распространять discovery-сообщения.
 
 Native-реализация использует полный non-trickle SDP с несколькими публичными
-WebTorrent trackers и подписанные короткоживущие Nostr events через несколько
-relay. Оба адаптера удаляют дубликаты и автоматически переподключаются. После
-аутентификации PeerId управляющие `ping`/`pong` поддерживают неактивный data
-channel. Trystero сохраняет свой trickle-ICE tracker path только для
-совместимости. Эти меры повышают надёжность discovery и сеанса, но не превращают
-публичные trackers, relays или STUN в инфраструктуру с гарантией доступности.
+WebTorrent trackers и короткоживущие подписанные Nostr offer, answer и
+trickle-ICE candidate events через несколько relay. Оба адаптера удаляют
+дубликаты и автоматически переподключаются. Listener ограниченно и недолго
+хранит Nostr candidates, пришедшие до offer. После аутентификации PeerId
+управляющие `ping`/`pong` поддерживают неактивный data channel. Trystero
+остаётся только для совместимости. Эти меры повышают надёжность discovery и
+сеанса, но не превращают публичные trackers, relays или STUN в инфраструктуру
+с гарантией доступности.
 
 Браузерный и Node.js WebRTC-клиенты используют один ICE/STUN-пул:
 

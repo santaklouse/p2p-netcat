@@ -26,6 +26,7 @@ export type NativeSignalingSession = {
   readonly name: string;
   readonly peerId: string;
   readonly topic: string;
+  readonly trickleIce: boolean;
   readonly ready: Promise<void>;
   subscribe(listener: (message: NativeSignalMessage) => void): () => void;
   publish(message: {

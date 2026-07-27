@@ -20,7 +20,9 @@ p2p-netcat server processes or server-side scripts are required.
 | Native `RTCPeerConnection` and ordered reliable `RTCDataChannel` controller | Implemented in core |
 | Signed Nostr signaling adapter | Implemented in core |
 | WebTorrent WebSocket tracker signaling adapter | Implemented in core |
-| CLI and static PWA integration | Native first, Trystero delayed by four seconds |
+| Nostr trickle ICE with bounded candidate reordering | Implemented in core |
+| CLI and static PWA integration | Native first; optional native-only mode |
+| Automated local WebRTC soak matrix | Weekly and manually dispatched on Linux/macOS |
 | Removal of Trystero npm dependencies | Pending real-network soak tests |
 
 The browser still consists only of static assets suitable for GitHub Pages.
@@ -34,9 +36,11 @@ built-in implementation.
 2. Both sides hash the versioned room into a non-reversible signaling topic.
 3. Each process creates one random 20-character signaling identity shared by
    its Nostr and tracker adapters.
-4. The initiator creates one non-trickle SDP offer per adapter. Full SDP is used
-   because WebTorrent trackers carry offers and answers rather than arbitrary
-   candidate messages.
+4. The Nostr attempt publishes its SDP immediately and trickles ICE candidates
+   as signed events. Candidates that arrive before their offer are retained in
+   a bounded 20-second listener cache. The WebTorrent attempt waits for ICE
+   gathering and publishes complete SDP because tracker announces carry offers
+   and answers rather than arbitrary candidate messages.
 5. The first answer that opens `p2p-netcat-v2` starts a 32-byte challenge.
 6. The server signs a domain-separated payload with its persistent libp2p
    Ed25519 key. The client reconstructs the PeerId and verifies that it is
@@ -85,6 +89,12 @@ ID and signature before their SDP is accepted. The server PeerId is still
 authenticated inside WebRTC; the ephemeral Nostr key authenticates only the
 integrity of a signaling event.
 
+Nostr has the `trickleIce` capability enabled. Offer/answer and candidate
+events may be delivered through different relays and out of order. The
+endpoint accepts at most 128 candidate-only session keys and 32 candidates per
+attempt, expiring each unresolved group after 20 seconds. This bounds memory
+usage while allowing a candidate received before its offer to remain useful.
+
 ### WebTorrent trackers
 
 The adapter derives a deterministic 20-byte tracker `info_hash`, maintains a
@@ -115,10 +125,66 @@ without Node.js globals.
 
 ## Compatibility phase
 
-CLI listeners currently open native adapters and legacy Trystero rooms. Clients
-try native signaling immediately and start Trystero only if no native channel
-has won after four seconds. A shared client-session identity lets a new listener
-reject duplicate native/legacy channels from the same new client.
+CLI listeners currently open native adapters and, by default, legacy Trystero
+rooms. Clients try native signaling immediately and start Trystero only if no
+native channel has won after four seconds. A shared client-session identity
+lets a new listener reject duplicate native/legacy channels from the same new
+client.
+
+Use `--no-trystero` on both CLI peers to exercise the exact post-migration
+path:
+
+```bash
+p2p-nc -l -i -v --no-trystero 31337
+p2p-nc -i -v --no-trystero 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
+```
+
+The PeerId in the second command must be replaced with the value printed by
+the listener. In the PWA, enable **Native WebRTC only** under advanced
+connection settings. The query parameter `?native-only=1` enables the same
+switch for repeatable browser runs. A pairing token always disables public
+Trystero independently of this switch.
+
+## Automated soak matrix
+
+The repository contains a deterministic runner built on real
+`RTCPeerConnection` and `RTCDataChannel` objects from `@roamhq/wrtc`:
+
+```bash
+npm run soak:webrtc -- \
+  --profile smoke \
+  --report artifacts/webrtc-soak-local.json
+```
+
+Profiles:
+
+| Profile | Iterations per scenario | Payload per direction |
+|---|---:|---:|
+| `smoke` | 1 | 64 KiB |
+| `ci` | 2 | 512 KiB |
+| `soak` | 12 | 8 MiB |
+
+`--iterations` and `--payload-bytes` override a profile.
+`--scenarios nostr-trickle,reconnect-same-stream` selects a subset. Every
+transfer is binary, bidirectional, flow-controlled, and verified by SHA-256.
+The runner covers:
+
+- Nostr trickle ICE with candidates intentionally able to overtake the offer;
+- WebTorrent-compatible complete non-trickle SDP;
+- simultaneous adapter attempts and duplicate offer delivery;
+- one signaling adapter failing while the other wins;
+- forced peer-connection loss, rebinding, and data transfer through the same
+  logical `WebRtcStream`.
+
+`.github/workflows/webrtc-soak.yml` runs weekly with the `soak` profile on
+Ubuntu and macOS. A manual dispatch can select `smoke`, `ci`, or `soak`, and
+each job uploads its JSON report.
+
+This matrix validates the core state machine, real local ICE/data channels,
+backpressure, adapter capability split, failure isolation, and reconnect. It
+does not simulate public Nostr/tracker outages, a browser lifecycle, geographic
+latency, or real NAT/firewall combinations. Those remain release gates rather
+than claims made by the automated runner.
 
 Trystero dependencies will be removed after this matrix passes sustained tests:
 

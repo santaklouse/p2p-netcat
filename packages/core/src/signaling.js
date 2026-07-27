@@ -106,14 +106,16 @@ class SignalingSession {
   topic
   ready
   pairingToken
+  trickleIce
   #listeners = new Set()
 
-  constructor ({ name, peerId, topic, ready, pairingToken }) {
+  constructor ({ name, peerId, topic, ready, pairingToken, trickleIce }) {
     this.name = name
     this.peerId = peerId
     this.topic = topic
     this.ready = ready
     this.pairingToken = pairingToken
+    this.trickleIce = Boolean(trickleIce)
   }
 
   subscribe (listener) {
@@ -151,7 +153,7 @@ class NostrSignalingSession extends SignalingSession {
     const ready = new Promise(resolve => {
       resolveReady = resolve
     })
-    super({ name: 'Native Nostr', peerId, topic, ready, pairingToken })
+    super({ name: 'Native Nostr', peerId, topic, ready, pairingToken, trickleIce: true })
     if (typeof WebSocketImpl !== 'function') throw new TypeError('WebSocket constructor is required for Nostr signaling')
     this.#WebSocket = WebSocketImpl
     this.#urls = urls
@@ -336,7 +338,7 @@ class TorrentSignalingSession extends SignalingSession {
     const ready = new Promise(resolve => {
       resolveReady = resolve
     })
-    super({ name: 'Native BitTorrent', peerId, topic, ready, pairingToken })
+    super({ name: 'Native BitTorrent', peerId, topic, ready, pairingToken, trickleIce: false })
     if (typeof WebSocketImpl !== 'function') throw new TypeError('WebSocket constructor is required for BitTorrent signaling')
     this.#WebSocket = WebSocketImpl
     this.#urls = urls

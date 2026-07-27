@@ -6,9 +6,9 @@ The repository produces three public, unscoped npm packages:
 
 | Package | Version | Contents |
 |---|---:|---|
-| `p2p-netcat-core` | `0.4.0` | Browser-safe protocol, private pairing, native WebRTC, route records, and PTY primitives |
-| `p2p-netcat` | `3.2.0` | Node.js CLI plus `p2p-netcat/core` and `p2p-netcat/relay` entrypoints |
-| `p2p-netcat-web` | `0.5.0` | Prebuilt static PWA with private pairing in the package `dist` directory |
+| `p2p-netcat-core` | `0.5.0` | Browser-safe protocol, native trickle ICE, private pairing, route records, and PTY primitives |
+| `p2p-netcat` | `3.3.0` | Node.js CLI plus `p2p-netcat/core` and `p2p-netcat/relay` entrypoints |
+| `p2p-netcat-web` | `0.6.0` | Prebuilt static PWA with native-only mode in the package `dist` directory |
 
 The GitHub source repository is
 [`santaklouse/p2p-netcat`](https://github.com/santaklouse/p2p-netcat).
@@ -38,6 +38,7 @@ Run all checks from the repository root:
 npm ci
 npm run lint
 npm test
+npm run soak:webrtc -- --profile ci
 
 npm --prefix web ci
 npm --prefix web run lint
@@ -63,8 +64,8 @@ npm publish ./web --access public
 
 The package `p2p-netcat` was completely unpublished on July 20, 2026. npm
 blocks reuse of the name for 24 hours, and an already-used `name@version` can
-never be reused. Version `3.2.0` adds the language-neutral private pairing
-protocol above the native WebRTC transport.
+never be reused. Version `3.3.0` adds the native-only switch, Nostr trickle ICE,
+and the automated WebRTC soak matrix.
 
 The web package publishes only its prebuilt `dist`, README files, license, and
 package metadata. Its build dependencies remain development-only and are not
@@ -83,9 +84,9 @@ Perform a clean installation in a temporary directory:
 ```bash
 release_test_dir="$(mktemp -d)"
 npm install --prefix "${release_test_dir}" \
-  p2p-netcat-core@0.4.0 \
-  p2p-netcat@3.2.0 \
-  p2p-netcat-web@0.5.0
+  p2p-netcat-core@0.5.0 \
+  p2p-netcat@3.3.0 \
+  p2p-netcat-web@0.6.0
 "${release_test_dir}/node_modules/.bin/p2p-nc" --version
 test -f "${release_test_dir}/node_modules/p2p-netcat-web/dist/index.html"
 ```
@@ -93,7 +94,7 @@ test -f "${release_test_dir}/node_modules/p2p-netcat-web/dist/index.html"
 Expected CLI output:
 
 ```text
-3.2.0
+3.3.0
 ```
 
 ## Future releases

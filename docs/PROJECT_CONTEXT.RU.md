@@ -338,7 +338,8 @@ stun:stun.internetcalls.com:3478
 
 - `WebRtcStream` с backpressure, EOF, keepalive и reconnect;
 - надёжный упорядоченный бинарный data-channel protocol;
-- Nostr signaling adapter с подписанными короткоживущими events;
+- Nostr signaling adapter с подписанными короткоживущими offer, answer и
+  trickle-ICE candidate events;
 - WebTorrent tracker adapter с ограниченным пулом offers и адресными answers;
 - controllers для client и listener endpoints;
 - Ed25519-доказательство владения точным запрошенным PeerId сервера.
@@ -355,7 +356,11 @@ stun:stun.internetcalls.com:3478
 Trystero пока остаётся в Node.js и web dependencies. Legacy adapters находятся
 в `src/trystero.js` и `web/app/webrtc-client.ts`. Удаление ожидает длительного
 тестирования browser/OS/NAT/background/high-output совместимости. Нельзя
-описывать миграцию как завершённую.
+описывать миграцию как завершённую. Опция CLI `--no-trystero`,
+native-only-переключатель PWA и `scripts/webrtc-soak.js` проверяют путь без этой
+зависимости до её удаления. Еженедельный workflow для Linux/macOS покрывает
+локальные сценарии настоящего WebRTC/data channel, но не реальные публичные
+сервисы, browsers и сочетания NAT.
 
 ## 10. Data protocols, flow control и восстановление
 
@@ -443,6 +448,7 @@ p2p-nc [options] [PeerId|multiaddr] [logical-port]
 | `-I, --identity` | Файл постоянной identity; прежнее короткое значение `-i` |
 | `--relay` | Явный Circuit Relay; можно повторять |
 | `--no-dht`, `--no-mdns`, `--no-pubsub`, `--no-quic`, `--no-webrtc` | Отключение отдельных веток |
+| `--no-trystero` | Оставить native WebRTC, но отключить отложенный legacy fallback |
 | `-v` | Подробная диагностика discovery, signaling, transport, ICE и reconnect |
 
 Основные ограничения:
@@ -565,6 +571,7 @@ Tor `-T` запрещает прямой fallback, требуя relay-only за�
 | `packages/core/src/session-auth.js` | Фиксированные взаимные admission frames |
 | `packages/core/src/authenticated-stream.js` | Stream wrapper с admission |
 | `packages/core/src/route-record.js` | Signed deterministic RouteRecord codec |
+| `scripts/webrtc-soak.js` | Локальные real-WebRTC soak-сценарии и JSON reports |
 | `web/app/page.tsx` | Основной React UI |
 | `web/app/i18n.ts` | English/Russian UI и diagnostic localization |
 | `web/app/p2p-client.ts` | Transport race и Worker RPC client |
@@ -575,6 +582,7 @@ Tor `-T` запрещает прямой fallback, требуя relay-only за�
 | `web/public/network-config.json` | Delegated routing и static relay config |
 | `web/vite.config.ts` | Static base path, PWA manifest и Workbox |
 | `.github/workflows/pages.yml` | CLI/core tests, PWA build и Pages deploy |
+| `.github/workflows/webrtc-soak.yml` | Scheduled/manual native WebRTC matrix для Linux и macOS |
 
 ## 16. Разработка и проверка
 
@@ -587,6 +595,7 @@ Tor `-T` запрещает прямой fallback, требуя relay-only за�
 npm ci
 npm run lint
 npm test
+npm run soak:webrtc -- --profile smoke
 ```
 
 Web:

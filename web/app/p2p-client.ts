@@ -212,6 +212,7 @@ export class BrowserP2PClient {
     interactive = false,
     timeout: number,
     pairingTokenValue = "",
+    nativeOnly = false,
   ) {
     this.interactive = interactive;
     this.ptyDecoder.reset();
@@ -231,7 +232,7 @@ export class BrowserP2PClient {
     }
 
     const nativeWebRtc = new BrowserNativeWebRtcClient(this.transportEvents);
-    const legacyWebRtc = pairingToken.length === 0
+    const legacyWebRtc = pairingToken.length === 0 && !nativeOnly
       ? new BrowserLegacyWebRtcClient(this.transportEvents)
       : null;
     const signalingPeerId = createSignalingPeerId();
@@ -263,6 +264,8 @@ export class BrowserP2PClient {
     legacyPromise?.catch(() => {});
     if (pairingToken.length > 0) {
       this.events.onLog("WebRTC: pairing token отключает публичный Trystero fallback");
+    } else if (nativeOnly) {
+      this.events.onLog("WebRTC native-only: Trystero fallback отключён");
     }
     const cancelDelayedLegacy = () => {
       if (legacyTimer == null) return;

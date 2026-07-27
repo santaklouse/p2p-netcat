@@ -88,6 +88,9 @@ simultaneously. Native WebRTC races signed Nostr events and WebTorrent tracker
 announces; Trystero starts after four seconds only as compatibility fallback.
 With a pairing token, the Worker queries only secret-derived provider CIDs,
 native signaling encrypts SDP/ICE, and Trystero is disabled.
+The advanced **Native WebRTC only** switch, or `?native-only=1`, disables
+Trystero in ordinary PeerId mode for migration and soak testing. It does not
+disable the parallel Worker/libp2p route.
 The Worker listens for signed announcements on the app-specific GossipSub
 topic and resolves the PeerId through
 `https://delegated-ipfs.dev/routing/v1`, and then uses DHT as a fallback. The
@@ -130,10 +133,12 @@ this application topic. A p2p-netcat relay participates in the topic by
 default, so an already reachable relay can also forward discovery messages.
 
 The native implementation uses full non-trickle SDP with several public
-WebTorrent trackers and signed, short-lived Nostr events through several
-relays. Both adapters deduplicate messages and reconnect automatically. After
-PeerId authentication, `ping`/`pong` control frames keep an idle data channel
-active. Trystero retains its trickle-ICE tracker path only for compatibility.
+WebTorrent trackers and signed, short-lived Nostr offer, answer, and
+trickle-ICE candidate events through several relays. Both adapters deduplicate
+messages and reconnect automatically. The listener bounds and briefly retains
+Nostr candidates that arrive before their offer. After PeerId authentication,
+`ping`/`pong` control frames keep an idle data channel active. Trystero remains
+only for compatibility.
 These measures improve discovery and session stability but do not turn public
 trackers, relays, or STUN into infrastructure with an availability guarantee.
 

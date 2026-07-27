@@ -45,6 +45,8 @@ Amino DHT, mDNS, and Circuit Relay v2.
   mutual admission, and no public PeerId lookup;
 - a project-owned direct WebRTC path that races signed public Nostr relays and
   WebTorrent trackers in both Node.js and the browser;
+- Nostr trickle ICE, WebTorrent full-SDP fallback, and `--no-trystero` /
+  PWA native-only switches for migration testing;
 - a delayed Trystero fallback for compatibility with already published peers;
 - a shared nine-endpoint STUN pool for CLI and browser WebRTC NAT traversal;
 - bounded end-to-end flow control from `node-pty` through the transport and Web
@@ -55,7 +57,7 @@ Amino DHT, mDNS, and Circuit Relay v2.
 - A built-in relay mode;
 - gs-netcat-style TCP forwarding, SOCKS4/4a/5, quiet, Tor, and true PTY modes;
 - `-l`, `-k`, `-w`, `-d`, `-p`, `-q`, `-S`, `-T`, `-i`, `-z`, `-e`, `-4`,
-  `-6`, and verbose mode;
+  `-6`, `--no-trystero`, and verbose mode;
 - Authenticated encryption through QUIC TLS 1.3 or Noise, including connections
   through a relay.
 
@@ -103,6 +105,11 @@ used for TCP forwarding. The internal libp2p TCP/UDP listen port is configured
 with `--transport-port`; when it is `0`, the operating system chooses each port
 independently. `-i` now means interactive PTY, so the short identity option is
 `-I` while `--identity` remains unchanged.
+
+Use `--no-trystero` on both peers to test the native WebRTC implementation
+without starting the delayed compatibility fallback. The automated local
+matrix is available through `npm run soak:webrtc`; profiles and limitations are
+documented in [WebRTC migration away from Trystero](docs/WEBRTC_MIGRATION.md).
 
 ## Quick start
 

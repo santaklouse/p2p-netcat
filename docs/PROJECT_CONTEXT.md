@@ -340,7 +340,8 @@ path. Core contains:
 
 - `WebRtcStream`, including backpressure, EOF, keepalive, and reconnect;
 - a reliable ordered binary data-channel protocol;
-- a Nostr signaling adapter using signed short-lived events;
+- a Nostr signaling adapter using signed short-lived offer, answer, and
+  trickle-ICE candidate events;
 - a WebTorrent tracker adapter with bounded offers and addressed answers;
 - client and listener endpoint controllers;
 - Ed25519 proof that the remote server owns the exact requested PeerId.
@@ -357,7 +358,11 @@ Authentication flow:
 Trystero remains installed in both Node.js and web dependencies. Relevant
 legacy adapters are `src/trystero.js` and `web/app/webrtc-client.ts`. Removal is
 pending sustained browser/OS/NAT/background/high-output compatibility testing.
-Do not describe the migration as complete.
+Do not describe the migration as complete. CLI `--no-trystero`, the PWA
+native-only switch, and `scripts/webrtc-soak.js` exercise the dependency-free
+path before removal. The weekly Linux/macOS workflow covers local real
+WebRTC/data-channel failure scenarios, but not real public infrastructure,
+browsers, or NAT combinations.
 
 ## 10. Data protocols, flow control, and recovery
 
@@ -446,6 +451,7 @@ Important modes:
 | `-I, --identity` | Persistent identity file; this is the former short `-i` identity meaning |
 | `--relay` | Explicit Circuit Relay; repeatable |
 | `--no-dht`, `--no-mdns`, `--no-pubsub`, `--no-quic`, `--no-webrtc` | Disable individual branches |
+| `--no-trystero` | Keep native WebRTC enabled but disable its delayed legacy fallback |
 | `-v` | Detailed discovery, signaling, transport, ICE, and reconnect diagnostics |
 
 Key restrictions:
@@ -569,6 +575,7 @@ server's application-layer destinations from all involved parties.
 | `packages/core/src/session-auth.js` | Fixed mutual admission frames |
 | `packages/core/src/authenticated-stream.js` | Admission-aware stream wrapper |
 | `packages/core/src/route-record.js` | Signed deterministic RouteRecord codec |
+| `scripts/webrtc-soak.js` | Real local WebRTC soak scenarios and JSON reports |
 | `web/app/page.tsx` | Main React UI |
 | `web/app/i18n.ts` | English/Russian UI and diagnostic localization |
 | `web/app/p2p-client.ts` | Transport race and Worker RPC client |
@@ -579,6 +586,7 @@ server's application-layer destinations from all involved parties.
 | `web/public/network-config.json` | Static delegated-routing and relay configuration |
 | `web/vite.config.ts` | Static base path, PWA manifest, Workbox config |
 | `.github/workflows/pages.yml` | CLI/core tests plus PWA build and Pages deploy |
+| `.github/workflows/webrtc-soak.yml` | Scheduled/manual Linux and macOS native WebRTC matrix |
 
 ## 16. Development and verification
 
@@ -591,6 +599,7 @@ Root checks:
 npm ci
 npm run lint
 npm test
+npm run soak:webrtc -- --profile smoke
 ```
 
 Web checks:

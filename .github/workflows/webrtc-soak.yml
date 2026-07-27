@@ -1,0 +1,60 @@
+name: Native WebRTC soak matrix
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: WebRTC soak workload
+        required: true
+        default: ci
+        type: choice
+        options:
+          - smoke
+          - ci
+          - soak
+
+permissions:
+  contents: read
+
+jobs:
+  native-webrtc:
+    name: ${{ matrix.os }} / ${{ github.event.inputs.profile || 'soak' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.5.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run native WebRTC matrix
+        shell: bash
+        run: |
+          profile="${{ github.event.inputs.profile || 'soak' }}"
+          npm run soak:webrtc -- \
+            --profile "${profile}" \
+            --report "artifacts/webrtc-soak-${RUNNER_OS}.json"
+
+      - name: Upload soak report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: webrtc-soak-${{ runner.os }}
+          path: artifacts/webrtc-soak-${{ runner.os }}.json
+          if-no-files-found: warn

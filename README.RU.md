@@ -46,6 +46,8 @@ Relay v2.
   зашифрованным signaling, взаимным admission и без публичного PeerId lookup;
 - собственный прямой WebRTC-путь, который и в Node.js, и в браузере параллельно
   использует подписанные события публичных Nostr relay и WebTorrent trackers;
+- Nostr trickle ICE, WebTorrent full-SDP fallback и переключатели
+  `--no-trystero` / native-only в PWA для тестирования миграции;
 - отложенный Trystero fallback для совместимости с уже опубликованными peers;
 - общий пул из девяти STUN endpoint для WebRTC NAT traversal в CLI и браузере;
 - ограниченный сквозной flow control от `node-pty` через транспорт и Web Worker
@@ -56,7 +58,7 @@ Relay v2.
 - собственный relay-режим;
 - TCP forwarding, SOCKS4/4a/5, quiet, Tor и настоящий PTY в стиле gs-netcat;
 - `-l`, `-k`, `-w`, `-d`, `-p`, `-q`, `-S`, `-T`, `-i`, `-z`, `-e`, `-4`,
-  `-6` и подробный режим;
+  `-6`, `--no-trystero` и подробный режим;
 - аутентифицированное шифрование через QUIC TLS 1.3 или Noise, включая
   соединения через relay.
 
@@ -104,6 +106,12 @@ QUIC включён по умолчанию. Используйте `--no-quic` 
 `--transport-port`; при значении `0` операционная система выбирает порты
 независимо. `-i` теперь включает интерактивный PTY, поэтому короткая опция файла
 идентичности перенесена на `-I`, а длинная `--identity` не изменилась.
+
+Передайте `--no-trystero` обоим peers, чтобы проверить собственную WebRTC
+реализацию без запуска отложенного compatibility fallback. Автоматическая
+локальная матрица запускается командой `npm run soak:webrtc`; профили и
+ограничения описаны в документе
+[Миграция WebRTC без Trystero](docs/WEBRTC_MIGRATION.RU.md).
 
 ## Быстрый запуск
 

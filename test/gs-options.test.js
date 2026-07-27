@@ -10,6 +10,10 @@ import { PTY_PROTOCOL, createStreamSender, ptyServerSession } from '../src/pty.j
 import { quietRequested, torCommand, torRequested } from '../src/tor.js'
 import { protocolForService } from 'p2p-netcat-core'
 
+test('CLI exposes a native-only WebRTC compatibility switch', () => {
+  assert.match(createProgram().helpInformation(), /--no-trystero/)
+})
+
 async function listen (server) {
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')

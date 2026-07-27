@@ -25,14 +25,16 @@ import {
 
 class MemorySignalingBus {
   sessions = new Set()
+  deliveryLog = []
 
-  createSession (name, peerId) {
+  createSession (name, peerId, { trickleIce = true, offerDelayMs = 0 } = {}) {
     const bus = this
     const listeners = new Set()
     const session = {
       name,
       peerId,
       topic: 'memory-native-webrtc-topic',
+      trickleIce,
       ready: Promise.resolve(),
       subscribe (listener) {
         listeners.add(listener)
@@ -48,7 +50,12 @@ class MemorySignalingBus {
         })
         for (const target of bus.sessions) {
           if (target === session) continue
-          queueMicrotask(() => target.emit(signal))
+          const deliver = () => {
+            bus.deliveryLog.push(signal.type)
+            target.emit(signal)
+          }
+          if (signal.type === 'offer' && offerDelayMs > 0) setTimeout(deliver, offerDelayMs)
+          else queueMicrotask(deliver)
         }
       },
       status () {
@@ -210,7 +217,11 @@ test('native WebRTC endpoint аутентифицирует PeerId и перед
   const service = 31337
   const bus = new MemorySignalingBus()
   const serverSignaling = bus.createSession('Memory signaling', 'SERVER12345678901234')
-  const clientSignaling = bus.createSession('Memory signaling', 'CLIENT12345678901234')
+  const clientSignaling = bus.createSession(
+    'Memory signaling',
+    'CLIENT12345678901234',
+    { offerDelayMs: 20 }
+  )
   const peerConnections = []
   function TrackingRTCPeerConnection (configuration) {
     const connection = new wrtc.RTCPeerConnection(configuration)
@@ -277,6 +288,10 @@ test('native WebRTC endpoint аутентифицирует PeerId и перед
     await serverStream.onDrain()
     assert.deepEqual((await clientReader.next()).value, serverPayload)
     assert.equal(clientStream.signalingStrategy, 'Memory signaling')
+    assert.ok(
+      bus.deliveryLog.indexOf('candidate') < bus.deliveryLog.indexOf('offer'),
+      'listener must accept trickle candidates delivered before their offer'
+    )
 
     peerConnections[0].close()
     let reconnectTimer

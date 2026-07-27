@@ -112,6 +112,15 @@ p2p-nc -l -I /var/lib/p2p-netcat/server.key -v 31337
 p2p-nc -v -w 90 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
 ```
 
+Чтобы проверить только собственный WebRTC-путь проекта, добавьте
+`--no-trystero` и listener, и client. Native signaling через Nostr/WebTorrent
+останется включён, но отложенный compatibility fallback не запустится:
+
+```bash
+p2p-nc -l -i -v --no-trystero 31337
+p2p-nc -i -v --no-trystero 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
+```
+
 Самый предсказуемый вариант для двух узлов за строгим NAT — передать обеим
 сторонам один доступный Circuit Relay v2 через `--relay`. Подробности:
 [программный relay](RELAY_API.RU.md) и
@@ -126,4 +135,3 @@ Node.js через менеджер версий пользователя или
 ```bash
 npm install --global p2p-netcat@latest
 ```
-

@@ -460,7 +460,8 @@ export async function startWebRtcListener ({
   service,
   onStream,
   verbose = false,
-  pairingToken
+  pairingToken,
+  enableLegacyFallback = true
 }) {
   const peerId = peerIdFromPrivateKey(privateKey).toString()
   const roomId = webRtcRoomId(peerId, service)
@@ -522,7 +523,7 @@ export async function startWebRtcListener ({
     verboseLog(verbose, `WebRTC/native: listener не запущен: ${error.message}`)
   }
 
-  if (pairingToken == null) {
+  if (pairingToken == null && enableLegacyFallback) {
     try {
       listeners.push(startLegacyWebRtcListener({
         privateKey,
@@ -535,8 +536,10 @@ export async function startWebRtcListener ({
     } catch (error) {
       verboseLog(verbose, `WebRTC/Trystero: fallback не запущен: ${error.message}`)
     }
-  } else {
+  } else if (pairingToken != null) {
     verboseLog(verbose, 'WebRTC: приватный режим использует только зашифрованный native signaling')
+  } else {
+    verboseLog(verbose, 'WebRTC/native-only: Trystero fallback отключён')
   }
 
   if (listeners.length === 0) throw new Error('Не удалось запустить ни один WebRTC listener')
@@ -554,7 +557,8 @@ export function connectWebRtc ({
   service,
   timeoutMs = 30_000,
   verbose = false,
-  pairingToken
+  pairingToken,
+  enableLegacyFallback = true
 }) {
   const roomId = webRtcRoomId(peerId, service)
   const signalingPeerId = createSignalingPeerId()
@@ -604,7 +608,7 @@ export function connectWebRtc ({
   attempts.push(nativeAttempt)
   verboseLog(verbose, 'WebRTC/native: ищу пир через собственные Nostr и BitTorrent adapters')
 
-  if (pairingToken == null) {
+  if (pairingToken == null && enableLegacyFallback) {
     const fallbackDelayMs = Math.min(LEGACY_FALLBACK_DELAY_MS, Math.max(500, Math.floor(timeoutMs / 4)))
     const delayedLegacy = {
       strategy: { label: 'Trystero fallback' },
@@ -639,8 +643,10 @@ export function connectWebRtc ({
     }
     delayedLegacy.promise.catch(() => {})
     attempts.push(delayedLegacy)
-  } else {
+  } else if (pairingToken != null) {
     verboseLog(verbose, 'WebRTC: приватный режим не использует Trystero fallback')
+  } else {
+    verboseLog(verbose, 'WebRTC/native-only: Trystero fallback отключён')
   }
 
   const promise = Promise.any(attempts.map(attempt => (

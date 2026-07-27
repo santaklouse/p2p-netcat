@@ -110,6 +110,12 @@ Core теперь содержит native signaling adapters, SDP controller, б
 реализации WebRTC-имена. Протокол и критерии удаления зависимости описаны в
 [документе миграции](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.RU.md).
 
+Каждый `NativeSignalingSession` предоставляет read-only capability
+`trickleIce`. Для Nostr она равна `true`, для tracker — `false`. Поэтому
+endpoint controllers публикуют Nostr candidates сразу, а перед WebTorrent
+announce ожидают полный SDP. Пользовательский signaling adapter должен задавать
+это поле явно.
+
 Минимальный native client:
 
 ```js

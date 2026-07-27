@@ -109,6 +109,12 @@ testing. New code should use the implementation-neutral WebRTC names. See the
 [migration document](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.md)
 for the protocol and removal criteria.
 
+Every `NativeSignalingSession` exposes a read-only `trickleIce` capability.
+Nostr sessions set it to `true`; tracker sessions set it to `false`. Endpoint
+controllers therefore publish Nostr candidates as they appear while waiting
+for complete SDP before a WebTorrent announce. Callers that provide custom
+signaling sessions should set this field explicitly.
+
 Minimal native client setup:
 
 ```js

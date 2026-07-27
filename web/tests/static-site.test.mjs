@@ -72,8 +72,11 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(nativeWebRtc, /defaultRtcConfiguration/);
   assert.match(legacyWebRtc, /@trystero-p2p\/torrent/);
   assert.match(client, /LEGACY_WEBRTC_FALLBACK_DELAY_MS/);
+  assert.match(client, /pairingToken\.length === 0 && !nativeOnly/);
   assert.match(signaling, /class NostrSignalingSession/);
   assert.match(signaling, /class TorrentSignalingSession/);
+  assert.match(signaling, /trickleIce: true/);
+  assert.match(signaling, /trickleIce: false/);
   assert.match(endpoint, /connectNativeWebRtc/);
   assert.match(endpoint, /startNativeWebRtcListener/);
   assert.match(core, /stun:stun\.l\.google\.com:19302/);
@@ -119,6 +122,10 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(localization, /Interactive PTY/);
   assert.match(localization, /Интерактивный PTY/);
   assert.match(page, /p2p-netcat-interactive/);
+  assert.match(page, /p2p-netcat-native-only/);
+  assert.match(page, /get\("native-only"\)/);
+  assert.match(localization, /Native WebRTC only/);
+  assert.match(localization, /Только native WebRTC/);
   assert.doesNotMatch(page, /localStorage\.(?:setItem|getItem)\([^)]*pairing/i);
   assert.match(page, /lazy\(\(\) => import\("\.\/browser-terminal"\)\)/);
   assert.match(client, /PtyFrameDecoder/);

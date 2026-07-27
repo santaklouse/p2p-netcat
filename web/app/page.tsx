@@ -29,6 +29,7 @@ export default function Home() {
   const [logicalPort, setLogicalPort] = useState(31337);
   const [timeout, setTimeout] = useState(30);
   const [interactive, setInteractive] = useState(false);
+  const [nativeOnly, setNativeOnly] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
   const [localPeerId, setLocalPeerId] = useState("");
   const [message, setMessage] = useState("");
@@ -78,6 +79,12 @@ export default function Home() {
     if (savedRelay) setRelayAddress(savedRelay);
     setShowSentText(window.localStorage.getItem("p2p-netcat-show-sent") === "true");
     setInteractive(window.localStorage.getItem("p2p-netcat-interactive") === "true");
+    const nativeOnlyQuery = new URLSearchParams(window.location.search).get("native-only");
+    setNativeOnly(
+      nativeOnlyQuery === "1"
+      || nativeOnlyQuery === "true"
+      || (nativeOnlyQuery == null && window.localStorage.getItem("p2p-netcat-native-only") === "true"),
+    );
     return () => {
       void clientRef.current?.stop();
     };
@@ -131,7 +138,8 @@ export default function Home() {
       if (relayAddress.trim()) window.localStorage.setItem("p2p-netcat-relay", relayAddress.trim());
       else window.localStorage.removeItem("p2p-netcat-relay");
       window.localStorage.setItem("p2p-netcat-interactive", String(interactive));
-      await client.connect(targetPeerId, logicalPort, relayAddress, interactive, timeout, pairingToken);
+      window.localStorage.setItem("p2p-netcat-native-only", String(nativeOnly));
+      await client.connect(targetPeerId, logicalPort, relayAddress, interactive, timeout, pairingToken, nativeOnly);
       setConnectionState("connected");
       if (interactive) addLog(copy.ptyEnabled, "success");
     } catch (error) {
@@ -372,6 +380,22 @@ export default function Home() {
                 <small id="relay-help">
                   {copy.relayHelp} <code>/dns4/relay.example/tcp/443/wss/p2p/…</code>
                 </small>
+              </label>
+              <label className="native-mode">
+                <input
+                  type="checkbox"
+                  checked={nativeOnly}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setNativeOnly(checked);
+                    window.localStorage.setItem("p2p-netcat-native-only", String(checked));
+                  }}
+                  disabled={sessionActive}
+                />
+                <span>
+                  {copy.nativeOnly}
+                  <small>{copy.nativeOnlyHelp}</small>
+                </span>
               </label>
             </details>
 

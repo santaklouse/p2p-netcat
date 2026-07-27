@@ -14,6 +14,8 @@ const INITIAL_ATTEMPT_TIMEOUT_MS = 20_000
 const RETRY_DELAY_MS = 750
 const MAX_LISTENER_ATTEMPTS = 64
 const MAX_LISTENER_ATTEMPTS_PER_PEER = 4
+const MAX_PENDING_CANDIDATE_SESSIONS = 128
+const MAX_PENDING_CANDIDATES_PER_ATTEMPT = 32
 
 export function startNativeWebRtcListener ({
   signalingSessions,
@@ -33,8 +35,34 @@ export function startNativeWebRtcListener ({
 
   const streams = new Map()
   const attempts = new Map()
+  const pendingCandidates = new Map()
   const unsubscribe = []
   let closed = false
+
+  const forgetPendingCandidates = key => {
+    const pending = pendingCandidates.get(key)
+    if (pending == null) return []
+    clearTimeout(pending.timer)
+    pendingCandidates.delete(key)
+    return pending.messages
+  }
+
+  const queuePendingCandidate = (key, message) => {
+    let pending = pendingCandidates.get(key)
+    if (pending == null) {
+      if (pendingCandidates.size >= MAX_PENDING_CANDIDATE_SESSIONS) {
+        const oldestKey = pendingCandidates.keys().next().value
+        if (oldestKey != null) forgetPendingCandidates(oldestKey)
+      }
+      const timer = setTimeout(() => forgetPendingCandidates(key), INITIAL_ATTEMPT_TIMEOUT_MS)
+      timer.unref?.()
+      pending = { messages: [], timer }
+      pendingCandidates.set(key, pending)
+    }
+    if (pending.messages.length < MAX_PENDING_CANDIDATES_PER_ATTEMPT) {
+      pending.messages.push(message)
+    }
+  }
 
   const receiveSignal = (session, message) => {
     if (closed) return
@@ -45,12 +73,19 @@ export function startNativeWebRtcListener ({
       return
     }
     if (message.type === 'candidate') {
-      const attempt = attempts.get(attemptKey(session, message.from, message.sessionId))
-      if (attempt != null) void attempt.peer.signal(message).catch(error => attempt.peer.close(asError(error)))
+      const key = attemptKey(session, message.from, message.sessionId)
+      const attempt = attempts.get(key)
+      if (attempt != null) {
+        void attempt.peer.signal(message).catch(error => attempt.peer.close(asError(error)))
+      } else if (session.trickleIce === true) {
+        queuePendingCandidate(key, message)
+      }
       return
     }
     if (message.type === 'bye') {
-      const attempt = attempts.get(attemptKey(session, message.from, message.sessionId))
+      const key = attemptKey(session, message.from, message.sessionId)
+      forgetPendingCandidates(key)
+      const attempt = attempts.get(key)
       attempt?.peer.close(new Error('Remote native WebRTC attempt was cancelled'))
     }
   }
@@ -74,6 +109,7 @@ export function startNativeWebRtcListener ({
     let peer
     const cleanupAttempt = () => {
       clearTimeout(attemptTimer)
+      forgetPendingCandidates(key)
       const current = attempts.get(key)
       if (current?.peer === peer) attempts.delete(key)
     }
@@ -90,7 +126,7 @@ export function startNativeWebRtcListener ({
       RTCPeerConnection,
       initiator: false,
       rtcConfig,
-      trickleIce: false,
+      trickleIce: session.trickleIce === true,
       onSignal: signal => session.publish({
         ...signal,
         sessionId: offer.sessionId,
@@ -132,6 +168,9 @@ export function startNativeWebRtcListener ({
     attemptTimer.unref?.()
     try {
       await peer.signal(offer)
+      for (const candidate of forgetPendingCandidates(key)) {
+        await peer.signal(candidate)
+      }
     } catch (error) {
       peer.close(asError(error))
       throw error
@@ -196,6 +235,7 @@ export function startNativeWebRtcListener ({
         attempt.peer.close(new Error('Native WebRTC listener stopped'))
       }
       attempts.clear()
+      for (const key of pendingCandidates.keys()) forgetPendingCandidates(key)
       for (const entry of streams.values()) {
         entry.stream.peerLeft()
         entry.link.peer?.close(new Error('Native WebRTC listener stopped'))
@@ -326,7 +366,7 @@ export function connectNativeWebRtc ({
       RTCPeerConnection,
       initiator: true,
       rtcConfig,
-      trickleIce: false,
+      trickleIce: session.trickleIce === true,
       onSignal: signal => session.publish({
         ...signal,
         sessionId

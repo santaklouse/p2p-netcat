@@ -110,7 +110,10 @@ export class NativeWebRtcPeer {
             sdpMLineIndex: event.candidate.sdpMLineIndex,
             usernameFragment: event.candidate.usernameFragment
           }
-      void this.#emitSignal({ type: 'candidate', candidate })
+      void this.#emitSignal({ type: 'candidate', candidate }).catch(error => {
+        this.#reportError(error)
+        this.close(error instanceof Error ? error : new Error(String(error)))
+      })
     }
     this.connection.onconnectionstatechange = () => this.#handleConnectionState()
     this.connection.oniceconnectionstatechange = () => this.#handleConnectionState()

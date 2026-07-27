@@ -126,7 +126,9 @@ signaling topic, and race project-owned Nostr and WebTorrent tracker adapters.
 In ordinary PeerId mode public relays and trackers carry SDP signaling, and a
 Trystero compatibility attempt starts after four seconds if native WebRTC has
 not already won. With a pairing token, the topic is secret-derived, SDP and ICE
-are AES-256-GCM encrypted, and Trystero is not started.
+are AES-256-GCM encrypted, and Trystero is not started. `--no-trystero` in the
+CLI and **Native WebRTC only** in the PWA disable the compatibility attempt in
+ordinary PeerId mode as well.
 
 Each connection attempt sends a random 32-byte challenge. The CLI server signs
 a domain-separated transcript with its persistent Ed25519 key; the client
@@ -144,11 +146,12 @@ stack; no p2p-netcat payload is sent through a STUN server.
 
 The native tracker adapter uses complete non-trickle SDP, maintains a bounded
 offer pool, and connects to several WebTorrent trackers. The independent Nostr
-adapter publishes short-lived signed events through several relays. Both
-deduplicate signaling and reconnect WebSockets with bounded exponential
-backoff. Once authenticated, a 15-second `ping`/`pong` control exchange keeps
-an otherwise idle data channel active. Trystero retains its trickle-ICE tracker
-strategy only for compatibility with published peers.
+adapter publishes short-lived signed offer, answer, and trickle-ICE candidate
+events through several relays. The endpoint keeps a bounded 20-second candidate
+cache for relay reordering. Both adapters deduplicate signaling and reconnect
+WebSockets with bounded exponential backoff. Once authenticated, a 15-second
+`ping`/`pong` control exchange keeps an otherwise idle data channel active.
+Trystero is retained only for compatibility with published peers.
 
 When a native data channel closes unexpectedly, `WebRtcStream` enters
 `reconnecting` for 120 seconds, keeps the async iterator open, and blocks

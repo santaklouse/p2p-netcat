@@ -214,6 +214,8 @@ test('native Nostr signaling exchanges signed room-scoped messages', async () =>
     WebSocket: FakeSignalingWebSocket
   })
   await Promise.all([server.ready, client.ready])
+  assert.equal(server.trickleIce, true)
+  assert.equal(client.trickleIce, true)
 
   const offer = nextSignal(server)
   await client.publish({ type: 'offer', sessionId: 'session-1234', sdp: 'offer-sdp' })
@@ -263,6 +265,8 @@ test('native BitTorrent signaling routes offer and addressed answer', async () =
     WebSocket: FakeSignalingWebSocket
   })
   await Promise.all([server.ready, client.ready])
+  assert.equal(server.trickleIce, false)
+  assert.equal(client.trickleIce, false)
 
   const receivedOffer = nextSignal(server)
   await client.publish({ type: 'offer', sessionId: 'session-5678', sdp: 'offer-sdp' })
