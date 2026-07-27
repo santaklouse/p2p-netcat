@@ -57,11 +57,19 @@ export default function Home() {
   };
 
   useEffect(() => {
+    const socialImageName = language === "ru" ? "og.png" : "og-en.png";
+    const assetBaseUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+    const socialImageUrl = new URL(socialImageName, assetBaseUrl).href;
+
     document.documentElement.lang = language;
     document.title = copy.documentTitle;
     document.querySelector('meta[name="description"]')?.setAttribute("content", copy.documentDescription);
     document.querySelector('meta[property="og:description"]')?.setAttribute("content", copy.documentDescription);
-  }, [copy.documentDescription, copy.documentTitle, language]);
+    document.querySelector('meta[property="og:image"]')?.setAttribute("content", socialImageUrl);
+    document.querySelector('meta[property="og:image:alt"]')?.setAttribute("content", copy.socialImageAlt);
+    document.querySelector('meta[name="twitter:image"]')?.setAttribute("content", socialImageUrl);
+    document.querySelector('meta[name="twitter:image:alt"]')?.setAttribute("content", copy.socialImageAlt);
+  }, [copy.documentDescription, copy.documentTitle, copy.socialImageAlt, language]);
 
   useEffect(() => {
     const savedRelay = window.localStorage.getItem("p2p-netcat-relay");

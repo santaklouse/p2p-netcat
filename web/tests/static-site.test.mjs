@@ -12,8 +12,11 @@ test("builds as a static PWA without a server bundle", async () => {
 
   assert.match(html, /p2p-netcat web/);
   assert.match(html, /manifest\.webmanifest/);
+  assert.match(html, /og-en\.png/);
   assert.doesNotMatch(html, /%BASE_URL%/);
   assert.ok(files.includes("sw.js"));
+  assert.ok(files.includes("og-en.png"));
+  assert.ok(files.includes("og.png"));
   assert.deepEqual(JSON.parse(networkConfig).delegatedRouting, ["https://delegated-ipfs.dev/routing/v1"]);
   const parsedManifest = JSON.parse(manifest);
   assert.equal(parsedManifest.display, "standalone");
@@ -93,10 +96,13 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(localization, /Необязательно · используется автопоиск/);
   assert.match(localization, /languageLink: "Русская версия"/);
   assert.match(localization, /languageLink: "English version"/);
+  assert.match(localization, /socialImageAlt: "p2p-netcat web — a terminal between two peers"/);
+  assert.match(localization, /socialImageAlt: "p2p-netcat web — терминал между двумя узлами"/);
   assert.match(localization, /get\("lang"\) === "ru"/);
   assert.match(localization, /export function localizeDiagnostic/);
   assert.match(localization, /Starting the network stack in a Web Worker/);
   assert.match(page, /getLanguageUrl\(alternateLanguage\)/);
+  assert.match(page, /language === "ru" \? "og\.png" : "og-en\.png"/);
   assert.match(page, /localizeDiagnostic\(text, language\)/);
   assert.doesNotMatch(page, /!targetPeerId \|\| !relayAddress/);
   assert.match(main, /location\.hostname\.endsWith\("\.github\.io"\)/);

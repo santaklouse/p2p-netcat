@@ -26,7 +26,7 @@ export default defineConfig(() => {
       VitePWA({
         registerType: "autoUpdate",
         injectRegister: null,
-        includeAssets: ["icon-192.png", "icon-512.png", "og.png"],
+        includeAssets: ["icon-192.png", "icon-512.png", "og.png", "og-en.png"],
         manifest: {
           id: base,
           name: "p2p-netcat web",

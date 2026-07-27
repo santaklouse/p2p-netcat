@@ -5,6 +5,7 @@ export const uiText = {
     locale: "en-US",
     documentTitle: "p2p-netcat web — P2P terminal in your browser",
     documentDescription: "An encrypted browser P2P terminal that connects by PeerId",
+    socialImageAlt: "p2p-netcat web — a terminal between two peers",
     stateLabels: {
       idle: "Ready",
       starting: "Starting node",
@@ -77,6 +78,7 @@ export const uiText = {
     locale: "ru-RU",
     documentTitle: "p2p-netcat web — P2P-терминал в браузере",
     documentDescription: "Зашифрованный P2P-терминал в браузере с подключением по PeerId",
+    socialImageAlt: "p2p-netcat web — терминал между двумя узлами",
     stateLabels: {
       idle: "Готов",
       starting: "Запуск узла",
