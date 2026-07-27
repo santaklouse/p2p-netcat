@@ -18,7 +18,7 @@ CSS, JavaScript, Web Worker, Service Worker, manifest и изображений.
 - необязательный pairing token `pnc1_` для приватного вращающегося discovery,
   зашифрованного signaling и взаимного admission;
 - собственный прямой WebRTC через подписанные Nostr events и публичные
-  WebTorrent trackers с отложенным Trystero compatibility fallback;
+  WebTorrent trackers;
 - WebTransport или WebSocket/WSS через libp2p Circuit Relay v2;
 - необязательный ручной relay multiaddr как аварийный override;
 - Noise-шифрование и Yamux внутри отдельного Web Worker;
@@ -83,20 +83,16 @@ native endpoint controller перестроит WebRTC data channel, продо�
 JavaScript-контекст браузера и его временную signaling identity.
 
 При пустом поле relay одновременно запускаются native WebRTC и Worker. Native
-WebRTC соревнуёт подписанные Nostr events и WebTorrent tracker announce, а
-Trystero запускается через четыре секунды только как compatibility fallback.
-С pairing token Worker запрашивает только provider CID из секрета, native
-signaling шифрует SDP/ICE, а Trystero отключается.
-Расширенный переключатель **Только native WebRTC** или `?native-only=1`
-отключает Trystero и в обычном PeerId-режиме для migration/soak testing. Он не
-отключает параллельный маршрут Worker/libp2p.
+WebRTC соревнуёт подписанные Nostr events и WebTorrent tracker announce.
+С pairing token Worker запрашивает только provider CID из секрета, а native
+signaling шифрует SDP/ICE.
 Worker слушает подписанные объявления в отдельной GossipSub-теме приложения,
 запрашивает адрес PeerId через `https://delegated-ipfs.dev/routing/v1`, затем
 использует DHT как fallback. Первый аутентифицированный канал побеждает.
 Успешный libp2p-маршрут кешируется в IndexedDB на 24 часа. WebRTC-сервер
 аутентифицируется подписанным Ed25519 challenge, соответствующим введённому
 PeerId. Указанный в UI таймаут является единым deadline для Worker/libp2p,
-native WebRTC и compatibility paths, поэтому медленный DHT-запрос не блокирует
+native WebRTC, поэтому медленный DHT-запрос не блокирует
 форму дольше выбранного интервала. Файл `public/network-config.json` позволяет добавить другие совместимые
 routing endpoint и скрытый пул WSS relay без изменения интерфейса:
 
@@ -135,10 +131,9 @@ WebTorrent trackers и короткоживущие подписанные Nostr
 trickle-ICE candidate events через несколько relay. Оба адаптера удаляют
 дубликаты и автоматически переподключаются. Listener ограниченно и недолго
 хранит Nostr candidates, пришедшие до offer. После аутентификации PeerId
-управляющие `ping`/`pong` поддерживают неактивный data channel. Trystero
-остаётся только для совместимости. Эти меры повышают надёжность discovery и
-сеанса, но не превращают публичные trackers, relays или STUN в инфраструктуру
-с гарантией доступности.
+управляющие `ping`/`pong` поддерживают неактивный data channel. Эти меры
+повышают надёжность discovery и сеанса, но не превращают публичные trackers,
+relays или STUN в инфраструктуру с гарантией доступности.
 
 Браузерный и Node.js WebRTC-клиенты используют один ICE/STUN-пул:
 

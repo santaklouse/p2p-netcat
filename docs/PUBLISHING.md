@@ -8,7 +8,7 @@ The repository produces three public, unscoped npm packages:
 |---|---:|---|
 | `p2p-netcat-core` | `0.5.0` | Browser-safe protocol, native trickle ICE, private pairing, route records, and PTY primitives |
 | `p2p-netcat` | `3.3.0` | Node.js CLI plus `p2p-netcat/core` and `p2p-netcat/relay` entrypoints |
-| `p2p-netcat-web` | `0.6.0` | Prebuilt static PWA with native-only mode in the package `dist` directory |
+| `p2p-netcat-web` | `0.6.0` | Prebuilt static PWA with project-owned WebRTC in the package `dist` directory |
 
 The GitHub source repository is
 [`santaklouse/p2p-netcat`](https://github.com/santaklouse/p2p-netcat).
@@ -64,8 +64,8 @@ npm publish ./web --access public
 
 The package `p2p-netcat` was completely unpublished on July 20, 2026. npm
 blocks reuse of the name for 24 hours, and an already-used `name@version` can
-never be reused. Version `3.3.0` adds the native-only switch, Nostr trickle ICE,
-and the automated WebRTC soak matrix.
+never be reused. Version `3.3.0` completes the removal of Trystero, adds Nostr
+trickle ICE, and adds the automated WebRTC soak matrix.
 
 The web package publishes only its prebuilt `dist`, README files, license, and
 package metadata. Its build dependencies remain development-only and are not

@@ -14,7 +14,6 @@ import {
   PtyFrameDecoder,
   ROUTE_CAPABILITIES,
   SESSION_AUTH_FRAME_BYTES,
-  TrysteroStream,
   WebRtcStream,
   authenticateClientStream,
   authenticateServerStream,
@@ -691,17 +690,13 @@ test('core подписывает и проверяет native WebRTC challenge 
   assert.equal(await verifyWebRtcAuthResponse(response, peerId, 31338, challenge), false)
 })
 
-test('native и legacy WebRTC attempts используют одну client-session identity', () => {
+test('native WebRTC attempts используют одну client-session identity', () => {
   const clientId = 'ClientSession1234567'
   const challenge = createWebRtcClientChallenge(clientId)
 
   assert.equal(challenge.byteLength, 32)
   assert.equal(webRtcClientIdFromChallenge(challenge), clientId)
   assert.equal(webRtcClientIdFromChallenge(new Uint8Array(31)), null)
-})
-
-test('legacy Trystero stream export remains an alias during migration', () => {
-  assert.equal(TrysteroStream, WebRtcStream)
 })
 
 test('WebRTC action hub owns action mapping and reconnects the same stream', async () => {

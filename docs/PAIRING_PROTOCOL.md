@@ -92,7 +92,6 @@ Native WebRTC still races Nostr and WebTorrent signaling. The topic is a stable
 secret-derived identifier for the life of the token, while every SDP or ICE
 payload is independently protected by AES-256-GCM. A stable topic avoids
 breaking long-running WebSocket signaling sessions at a time-window boundary.
-The public Trystero compatibility path is disabled when a token is present.
 
 The first transport to authenticate the exact server PeerId then performs the
 pairing admission handshake. Application bytes are delivered only after both

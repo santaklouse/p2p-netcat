@@ -20,9 +20,6 @@ export const PUBSUB_DISCOVERY_INTERVAL_MS: 10000;
 export const WEBRTC_RECONNECT_GRACE_MS: 120000;
 export const WEBRTC_DATA_ACTION: "pnc-data-v1";
 export const WEBRTC_CONTROL_ACTION: "pnc-ctl-v1";
-export const TRYSTERO_APP_ID: typeof WEBRTC_APP_ID;
-export const TRYSTERO_AUTH_VERSION: typeof WEBRTC_AUTH_VERSION;
-export const TRYSTERO_RECONNECT_GRACE_MS: typeof WEBRTC_RECONNECT_GRACE_MS;
 export const PTY_FRAME_DATA: 0;
 export const PTY_FRAME_RESIZE: 1;
 export const PTY_FRAME_HEADER_LENGTH: 5;
@@ -87,10 +84,6 @@ export function signWebRtcAuthResponse(privateKey: PrivateKey, service: unknown,
 export function verifyWebRtcAuthResponse(value: ArrayBuffer | ArrayBufferView, expectedPeerId: unknown, service: unknown, challenge: ArrayBuffer | ArrayBufferView): Promise<boolean>;
 export function encodeWebRtcAuthResponse(publicKey: ArrayBuffer | ArrayBufferView, signature: ArrayBuffer | ArrayBufferView): Uint8Array;
 export function decodeWebRtcAuthResponse(value: ArrayBuffer | ArrayBufferView): Readonly<{ publicKey: Uint8Array; signature: Uint8Array }>;
-export const trysteroRoomId: typeof webRtcRoomId;
-export const trysteroAuthPayload: typeof webRtcAuthPayload;
-export const encodeTrysteroAuthResponse: typeof encodeWebRtcAuthResponse;
-export const decodeTrysteroAuthResponse: typeof decodeWebRtcAuthResponse;
 
 export class WebRtcStream implements AsyncIterable<Uint8Array> {
   status: "open" | "closed";
@@ -114,8 +107,6 @@ export class WebRtcStream implements AsyncIterable<Uint8Array> {
   peerLeft(): void;
   [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
 }
-
-export { WebRtcStream as TrysteroStream };
 
 export type WebRtcActionContext = { peerId: string };
 export type WebRtcAction = {
@@ -142,4 +133,3 @@ export type WebRtcActionHubOptions = {
   release?: () => void;
 };
 export function createWebRtcActionHub(room: WebRtcActionRoom, options?: WebRtcActionHubOptions): WebRtcActionHub;
-export const createTrysteroHub: typeof createWebRtcActionHub;

@@ -8,7 +8,7 @@
 |---|---:|---|
 | `p2p-netcat-core` | `0.5.0` | Browser-safe protocol, native trickle ICE, приватный pairing, route records и PTY-примитивы |
 | `p2p-netcat` | `3.3.0` | Node.js CLI и точки входа `p2p-netcat/core`, `p2p-netcat/relay` |
-| `p2p-netcat-web` | `0.6.0` | Собранная статическая PWA с native-only режимом в каталоге `dist` |
+| `p2p-netcat-web` | `0.6.0` | Собранная статическая PWA с собственным WebRTC в каталоге `dist` |
 
 Исходный GitHub-репозиторий:
 [`santaklouse/p2p-netcat`](https://github.com/santaklouse/p2p-netcat).
@@ -64,8 +64,8 @@ npm publish ./web --access public
 
 Пакет `p2p-netcat` был полностью удалён 20 июля 2026 года. npm блокирует
 повторное использование имени на 24 часа, а уже использованную комбинацию
-`name@version` нельзя опубликовать снова никогда. Версия `3.3.0` добавляет
-native-only переключатель, Nostr trickle ICE и автоматическую WebRTC
+`name@version` нельзя опубликовать снова никогда. Версия `3.3.0` завершает
+удаление Trystero, добавляет Nostr trickle ICE и автоматическую WebRTC
 soak-матрицу.
 
 Web-пакет публикует только собранный `dist`, README, лицензию и метаданные.

@@ -1,11 +1,11 @@
-# WebRTC migration away from Trystero
+# Native WebRTC migration record
 
 **English** | [Русский](WEBRTC_MIGRATION.RU.md)
 
-`p2p-netcat-core` now owns the WebRTC protocol, connection controller, and two
-public-infrastructure signaling adapters. Trystero is no longer the primary
-path. It remains a delayed compatibility fallback while the native path is
-soak-tested between browsers, Linux, and macOS.
+`p2p-netcat-core` owns the WebRTC protocol, connection controller, and two
+public-infrastructure signaling adapters. The Trystero runtime, adapters,
+compatibility API aliases, UI switch, CLI flag, and npm dependencies have been
+removed. Node.js and the static PWA now run the same native signaling design.
 
 Removing Trystero does not remove the need for rendezvous infrastructure. Two
 computers behind NAT cannot exchange SDP from a PeerId alone. The new code uses
@@ -21,9 +21,10 @@ p2p-netcat server processes or server-side scripts are required.
 | Signed Nostr signaling adapter | Implemented in core |
 | WebTorrent WebSocket tracker signaling adapter | Implemented in core |
 | Nostr trickle ICE with bounded candidate reordering | Implemented in core |
-| CLI and static PWA integration | Native first; optional native-only mode |
+| CLI and static PWA integration | Native-only |
 | Automated local WebRTC soak matrix | Weekly and manually dispatched on Linux/macOS |
-| Removal of Trystero npm dependencies | Pending real-network soak tests |
+| Removal of Trystero npm dependencies and adapters | Complete |
+| Removal of implementation-specific compatibility aliases | Complete |
 
 The browser still consists only of static assets suitable for GitHub Pages.
 Node.js supplies `RTCPeerConnection` through `@roamhq/wrtc`; browsers use their
@@ -123,27 +124,28 @@ The signaling functions accept injected `WebSocket` and
 `RTCPeerConnection` constructors, which makes them browser-safe and testable
 without Node.js globals.
 
-## Compatibility phase
+## Removal result
 
-CLI listeners currently open native adapters and, by default, legacy Trystero
-rooms. Clients try native signaling immediately and start Trystero only if no
-native channel has won after four seconds. A shared client-session identity
-lets a new listener reject duplicate native/legacy channels from the same new
-client.
+There is no delayed legacy branch. CLI and PWA clients race only the complete
+libp2p route against native WebRTC. Native WebRTC races the independent Nostr
+and WebTorrent signaling sessions internally, authenticates the requested
+PeerId, and closes every losing attempt.
 
-Use `--no-trystero` on both CLI peers to exercise the exact post-migration
-path:
+Verbose CLI runs expose the exact production path:
 
 ```bash
-p2p-nc -l -i -v --no-trystero 31337
-p2p-nc -i -v --no-trystero 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
+p2p-nc -l -i -v 31337
+p2p-nc -i -v 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
 ```
 
 The PeerId in the second command must be replaced with the value printed by
-the listener. In the PWA, enable **Native WebRTC only** under advanced
-connection settings. The query parameter `?native-only=1` enables the same
-switch for repeatable browser runs. A pairing token always disables public
-Trystero independently of this switch.
+the listener. The removed `--no-trystero` option and PWA native-only switch are
+unnecessary because this is now the only WebRTC implementation.
+
+The authentication transcript intentionally retains its historical
+`p2p-netcat/trystero-auth/v1` domain string. Changing it would break wire
+compatibility between existing native peers and the planned Go port. It is a
+frozen protocol value, not a package import or runtime dependency.
 
 ## Automated soak matrix
 
@@ -186,7 +188,8 @@ does not simulate public Nostr/tracker outages, a browser lifecycle, geographic
 latency, or real NAT/firewall combinations. Those remain release gates rather
 than claims made by the automated runner.
 
-Trystero dependencies will be removed after this matrix passes sustained tests:
+The dependency removal is complete. Continue running this real-network matrix
+as an ongoing stability gate:
 
 - browser to Linux CLI and macOS CLI to Linux CLI across countries;
 - Chrome, Firefox, and Safari;
@@ -194,7 +197,7 @@ Trystero dependencies will be removed after this matrix passes sustained tests:
 - background tabs and sleep/wake;
 - high-volume PTY output for several hours;
 - repeated network loss and recovery inside the 120-second window;
-- old published client to new listener and new client to old listener.
+- current browser to current CLI in both directions where applicable.
 
 STUN discovers NAT mappings but is not a relay. Symmetric NAT or blocked UDP
 can still require TURN or a configured libp2p Circuit Relay. Public relays and

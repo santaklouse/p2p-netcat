@@ -112,13 +112,12 @@ Increase the lookup deadline to 90 seconds:
 p2p-nc -v -w 90 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
 ```
 
-To test only the project-owned WebRTC path, add `--no-trystero` to both the
-listener and client. This leaves native Nostr/WebTorrent signaling enabled but
-does not start the delayed compatibility fallback:
+Every WebRTC connection now uses only the project-owned Nostr/WebTorrent
+signaling implementation. To inspect that path, enable verbose diagnostics:
 
 ```bash
-p2p-nc -l -i -v --no-trystero 31337
-p2p-nc -i -v --no-trystero 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
+p2p-nc -l -i -v 31337
+p2p-nc -i -v 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
 ```
 
 For two peers behind restrictive NAT, the most predictable option is to give

@@ -108,7 +108,6 @@ function commonNodeOptions (command) {
     .option('--no-pubsub', 'отключить подписанный GossipSub Peer Discovery')
     .option('--no-quic', 'отключить QUIC и использовать TCP/relay')
     .option('--no-webrtc', 'отключить прямой WebRTC fallback')
-    .option('--no-trystero', 'отключить legacy Trystero fallback и использовать только native WebRTC')
     .option('--pairing-token <token>', 'приватный pairing token pnc1_...; безопаснее использовать переменную P2P_NETCAT_TOKEN')
     .option('--pairing-token-file <file>', 'прочитать приватный pairing token из файла')
     .option('--bind <host>', 'локальный адрес для -p forwarding', '127.0.0.1')
@@ -243,7 +242,6 @@ async function runListener (target, serviceArgument, options) {
         privateKey,
         service,
         pairingToken,
-        enableLegacyFallback: options.trystero !== false,
         verbose: options.verbose,
         onStream: (stream, remotePeer) => void handleIncoming(stream, `webrtc:${remotePeer}`)
       })
@@ -251,9 +249,6 @@ async function runListener (target, serviceArgument, options) {
   printNodeInfo(node, { json: options.json, label: `слушатель:${service}` })
   stderr(`[p2p-nc] постоянный ключ: ${identityPath}`)
   if (pairingToken != null) stderr('[p2p-nc] приватный pairing-token режим включён')
-  if (options.trystero === false && options.verbose) {
-    stderr('[p2p-nc] WebRTC native-only: Trystero fallback отключён')
-  }
 
   let previousAddresses = new Set(addressLines(node))
   node.addEventListener('self:peer:update', () => {
@@ -362,8 +357,7 @@ async function runClient (target, serviceArgument, options) {
         service,
         timeoutMs,
         verbose: options.verbose,
-        pairingToken,
-        enableLegacyFallback: options.trystero !== false
+        pairingToken
       })
     }
     let winner

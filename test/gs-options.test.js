@@ -10,8 +10,8 @@ import { PTY_PROTOCOL, createStreamSender, ptyServerSession } from '../src/pty.j
 import { quietRequested, torCommand, torRequested } from '../src/tor.js'
 import { protocolForService } from 'p2p-netcat-core'
 
-test('CLI exposes a native-only WebRTC compatibility switch', () => {
-  assert.match(createProgram().helpInformation(), /--no-trystero/)
+test('CLI no longer exposes the removed WebRTC compatibility switch', () => {
+  assert.doesNotMatch(createProgram().helpInformation(), /trystero/i)
 })
 
 async function listen (server) {

@@ -9,9 +9,6 @@ import {
   encodePtyResize,
 } from "p2p-netcat-core";
 import { BrowserNativeWebRtcClient } from "./native-webrtc-client";
-import { BrowserWebRtcClient as BrowserLegacyWebRtcClient } from "./webrtc-client";
-
-const LEGACY_WEBRTC_FALLBACK_DELAY_MS = 4_000;
 
 export type ClientEvents = {
   onData: (bytes: Uint8Array) => void | Promise<void>;
@@ -175,8 +172,7 @@ export class BrowserP2PClient {
   private readonly transportEvents: ClientEvents;
   private readonly worker: WorkerP2PClient;
   private nativeWebRtc: BrowserNativeWebRtcClient | null = null;
-  private legacyWebRtc: BrowserLegacyWebRtcClient | null = null;
-  private active: "worker" | "native-webrtc" | "legacy-webrtc" | null = null;
+  private active: "worker" | "native-webrtc" | null = null;
   private interactive = false;
   private readonly ptyDecoder = new PtyFrameDecoder();
 
@@ -212,7 +208,6 @@ export class BrowserP2PClient {
     interactive = false,
     timeout: number,
     pairingTokenValue = "",
-    nativeOnly = false,
   ) {
     this.interactive = interactive;
     this.ptyDecoder.reset();
@@ -232,47 +227,11 @@ export class BrowserP2PClient {
     }
 
     const nativeWebRtc = new BrowserNativeWebRtcClient(this.transportEvents);
-    const legacyWebRtc = pairingToken.length === 0 && !nativeOnly
-      ? new BrowserLegacyWebRtcClient(this.transportEvents)
-      : null;
     const signalingPeerId = createSignalingPeerId();
     this.nativeWebRtc = nativeWebRtc;
-    this.legacyWebRtc = legacyWebRtc;
-    let legacyTimer: number | null = null;
-    let rejectDelayedLegacy: ((error: Error) => void) | null = null;
-    const fallbackDelayMs = Math.min(
-      LEGACY_WEBRTC_FALLBACK_DELAY_MS,
-      Math.max(500, Math.floor(timeout * 250)),
-    );
-    const legacyPromise = legacyWebRtc == null
-      ? null
-      : new Promise<"legacy-webrtc">((resolve, reject) => {
-          rejectDelayedLegacy = reject;
-          legacyTimer = window.setTimeout(() => {
-            legacyTimer = null;
-            this.events.onLog("WebRTC: собственный signaling пока не нашёл пир; запускаем Trystero fallback");
-            void legacyWebRtc
-              .connect(
-                targetPeerId,
-                logicalPort,
-                Math.max(1_000, timeout * 1000 - fallbackDelayMs),
-                signalingPeerId,
-              )
-              .then(() => resolve("legacy-webrtc"), reject);
-          }, fallbackDelayMs);
-        });
-    legacyPromise?.catch(() => {});
     if (pairingToken.length > 0) {
-      this.events.onLog("WebRTC: pairing token отключает публичный Trystero fallback");
-    } else if (nativeOnly) {
-      this.events.onLog("WebRTC native-only: Trystero fallback отключён");
+      this.events.onLog("WebRTC: pairing token защищает native signaling");
     }
-    const cancelDelayedLegacy = () => {
-      if (legacyTimer == null) return;
-      window.clearTimeout(legacyTimer);
-      legacyTimer = null;
-      rejectDelayedLegacy?.(new Error("Trystero fallback отменён"));
-    };
 
     try {
       const winner = await Promise.any([
@@ -280,32 +239,19 @@ export class BrowserP2PClient {
         nativeWebRtc
           .connect(targetPeerId, logicalPort, timeout * 1000, signalingPeerId, pairingToken)
           .then(() => "native-webrtc" as const),
-        ...(legacyPromise == null ? [] : [legacyPromise]),
       ]);
       this.active = winner;
       if (winner === "worker") {
-        cancelDelayedLegacy();
-        await Promise.allSettled([nativeWebRtc.stop(), legacyWebRtc?.stop() ?? Promise.resolve()]);
-        this.nativeWebRtc = null;
-        this.legacyWebRtc = null;
-        this.events.onLog("Выбран libp2p IPFS-маршрут", "success");
-      } else if (winner === "native-webrtc") {
-        cancelDelayedLegacy();
-        this.worker.cancel();
-        await legacyWebRtc?.stop();
-        this.legacyWebRtc = null;
-        this.events.onLog("Выбран собственный прямой WebRTC-канал", "success");
-      } else {
-        this.worker.cancel();
         await nativeWebRtc.stop();
         this.nativeWebRtc = null;
-        this.events.onLog("Выбран WebRTC через Trystero fallback", "success");
+        this.events.onLog("Выбран libp2p IPFS-маршрут", "success");
+      } else {
+        this.worker.cancel();
+        this.events.onLog("Выбран собственный прямой WebRTC-канал", "success");
       }
     } catch (error) {
-      cancelDelayedLegacy();
-      await Promise.allSettled([nativeWebRtc.stop(), legacyWebRtc?.stop() ?? Promise.resolve()]);
+      await nativeWebRtc.stop();
       this.nativeWebRtc = null;
-      this.legacyWebRtc = null;
       const reasons = error instanceof AggregateError
         ? error.errors.map((item) => item instanceof Error ? item.message : String(item)).join("; ")
         : error instanceof Error ? error.message : String(error);
@@ -336,7 +282,6 @@ export class BrowserP2PClient {
 
   async closeWrite() {
     if (this.active === "native-webrtc") return this.nativeWebRtc!.closeWrite();
-    if (this.active === "legacy-webrtc") return this.legacyWebRtc!.closeWrite();
     return this.worker.closeWrite();
   }
 
@@ -349,16 +294,13 @@ export class BrowserP2PClient {
     await Promise.allSettled([
       this.worker.stop(),
       this.nativeWebRtc?.stop() ?? Promise.resolve(),
-      this.legacyWebRtc?.stop() ?? Promise.resolve(),
     ]);
     this.active = null;
     this.nativeWebRtc = null;
-    this.legacyWebRtc = null;
   }
 
   private async sendTransport(bytes: Uint8Array) {
     if (this.active === "native-webrtc") return this.nativeWebRtc!.send(bytes);
-    if (this.active === "legacy-webrtc") return this.legacyWebRtc!.send(bytes);
     if (this.active === "worker") return this.worker.send(bytes);
     throw new Error("P2P-канал ещё не открыт");
   }

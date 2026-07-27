@@ -98,9 +98,9 @@ path репозитория, тестирует результат и публи
 8. Нельзя утверждать, что discovery только по PeerId надёжен на 100%. Пир может
    быть offline, находиться за строгим NAT, публичная signaling-инфраструктура
    может быть недоступна, а relay reservation может отсутствовать.
-9. Trystero — отложенный compatibility fallback, а не основной транспорт.
-   Нельзя удалять его до прохождения реальной матрицы тестирования из
-   [WEBRTC_MIGRATION.RU.md](WEBRTC_MIGRATION.RU.md).
+9. WebRTC signaling принадлежит core; нельзя возвращать runtime-слой,
+   привязанный к конкретному framework. Автоматические и реальные soak-матрицы
+   должны выполняться постоянно.
 10. Нужно сохранять посторонние изменения в working tree. Для воспроизводимой
     проверки используются `npm ci` и зафиксированные lockfile.
 11. Будущая реализация будет написана на Go. Поэтому новое кроссплатформенное
@@ -111,8 +111,7 @@ path репозитория, тестирует результат и публи
 Текущий release candidate добавляет приватный pairing:
 canonical token `pnc1_`, вращающиеся DHT provider CID, зашифрованный native
 signaling, взаимный stream admission, примитивы подписанного RouteRecord и
-одинаковая схема клиента в CLI и браузере. Trystero остаётся только для обычного
-режима PeerId; при наличии token он никогда не запускается.
+одинаковая схема клиента в CLI и браузере.
 
 ## 4. Именование пакетов и импортов
 
@@ -149,22 +148,18 @@ flowchart TB
     CORE["p2p-netcat-core"]
     LIBP2P["libp2p"]
     NATIVE["Native WebRTC"]
-    LEGACY["Отложенный Trystero fallback"]
     NET["TCP / QUIC / WSS / WebTransport / Circuit Relay"]
     SIGNAL["Nostr relay / WebTorrent trackers"]
 
     CLI --> CORE
     CLI --> LIBP2P
     CLI --> NATIVE
-    CLI --> LEGACY
     WEB --> WORKER
     WEB --> NATIVE
-    WEB --> LEGACY
     WORKER --> CORE
     WORKER --> LIBP2P
     LIBP2P --> NET
     NATIVE --> SIGNAL
-    LEGACY --> SIGNAL
 ```
 
 Ответственность слоёв:
@@ -198,7 +193,6 @@ flowchart TB
 | Таймаут формы браузера | `30 секунд` |
 | Срок кеша браузерного маршрута | `24 часа` |
 | Попытка кешированного маршрута | `6 секунд` |
-| Задержка native → Trystero | До `4 секунд`; меньше при очень малом общем таймауте |
 
 Постоянная identity listener обычно находится здесь:
 
@@ -242,10 +236,8 @@ Browser identity сейчас также временная и живёт тол
 7. Открывается протокол, соответствующий логическому порту.
 
 Для обычного одиночного stream CLI запускает гонку libp2p и native WebRTC.
-Native Nostr и WebTorrent signaling стартуют сразу; legacy Trystero обычно
-запускается через четыре секунды, если native WebRTC ещё не победил. При меньшем
-общем таймауте задержка сокращается до его четверти, но не ниже 500 мс. Первый
-аутентифицированный транспорт отменяет остальные.
+Native Nostr и WebTorrent signaling стартуют сразу. Первый аутентифицированный
+транспорт отменяет остальные.
 
 Client `-p` forwarding намеренно использует мультиплексированные libp2p streams,
 а не текущий одно-поточный WebRTC adapter.
@@ -274,11 +266,9 @@ WebRTC:
 1. Получить детерминированный room из target PeerId и логического порта.
 2. Запустить собственные Nostr и WebTorrent signaling adapters.
 3. Создать и аутентифицировать прямые `RTCDataChannel` candidates.
-4. После отложенного интервала, обычно через четыре секунды, запустить Trystero
-   только как compatibility fallback.
 
-`BrowserP2PClient` выбирает первый аутентифицированный libp2p, native WebRTC или
-legacy WebRTC канал. Все ветки используют таймаут из формы.
+`BrowserP2PClient` выбирает первый аутентифицированный libp2p или native WebRTC
+канал. Обе ветки используют таймаут из формы.
 
 ### 7.4 Браузер с явным relay
 
@@ -331,9 +321,9 @@ stun:stun.internetcalls.com:3478
 }
 ```
 
-## 9. Native WebRTC и миграция с Trystero
+## 9. Native WebRTC
 
-Собственная native WebRTC-реализация уже является основным WebRTC-путём. Core
+Собственная native WebRTC-реализация является единственным WebRTC-путём. Core
 содержит:
 
 - `WebRtcStream` с backpressure, EOF, keepalive и reconnect;
@@ -353,14 +343,15 @@ stun:stun.internetcalls.com:3478
    точное совпадение target PeerId.
 4. Listener открывает application stream только после `AUTH_READY`.
 
-Trystero пока остаётся в Node.js и web dependencies. Legacy adapters находятся
-в `src/trystero.js` и `web/app/webrtc-client.ts`. Удаление ожидает длительного
-тестирования browser/OS/NAT/background/high-output совместимости. Нельзя
-описывать миграцию как завершённую. Опция CLI `--no-trystero`,
-native-only-переключатель PWA и `scripts/webrtc-soak.js` проверяют путь без этой
-зависимости до её удаления. Еженедельный workflow для Linux/macOS покрывает
-локальные сценарии настоящего WebRTC/data channel, но не реальные публичные
-сервисы, browsers и сочетания NAT.
+Прежние сторонние adapters, dependencies, compatibility aliases, флаг CLI и
+переключатель PWA удалены. `scripts/webrtc-soak.js` проверяет настоящий
+production WebRTC state machine. Еженедельный workflow для Linux/macOS
+покрывает локальные сценарии настоящего WebRTC/data channel, но не реальные
+публичные сервисы, browsers и сочетания NAT.
+
+Исторический authentication domain `p2p-netcat/trystero-auth/v1` заморожен на
+wire для совместимости существующих native peers и будущего Go-порта. Он не
+означает наличие runtime dependency.
 
 ## 10. Data protocols, flow control и восстановление
 
@@ -448,7 +439,6 @@ p2p-nc [options] [PeerId|multiaddr] [logical-port]
 | `-I, --identity` | Файл постоянной identity; прежнее короткое значение `-i` |
 | `--relay` | Явный Circuit Relay; можно повторять |
 | `--no-dht`, `--no-mdns`, `--no-pubsub`, `--no-quic`, `--no-webrtc` | Отключение отдельных веток |
-| `--no-trystero` | Оставить native WebRTC, но отключить отложенный legacy fallback |
 | `-v` | Подробная диагностика discovery, signaling, transport, ICE и reconnect |
 
 Основные ограничения:
@@ -559,8 +549,7 @@ Tor `-T` запрещает прямой fallback, требуя relay-only за�
 | `src/forwarding.js` | TCP forwarding и SOCKS parsing |
 | `src/pty.js` | PTY listener/client и backpressure |
 | `src/tor.js` | Tor validation и torsocks re-exec |
-| `src/webrtc.js` | Native-first Node WebRTC orchestration |
-| `src/trystero.js` | Legacy Node Trystero compatibility |
+| `src/webrtc.js` | Native Node WebRTC orchestration |
 | `src/relay.js` | Programmatic Circuit Relay |
 | `src/core.js` | Реэкспорт `p2p-netcat/core` |
 | `packages/core/src/index.js` | Constants, validation, relay plans и PTY codec |
@@ -577,7 +566,6 @@ Tor `-T` запрещает прямой fallback, требуя relay-only за�
 | `web/app/p2p-client.ts` | Transport race и Worker RPC client |
 | `web/app/p2p.worker.ts` | Browser libp2p, discovery, routing и cache |
 | `web/app/native-webrtc-client.ts` | Browser native WebRTC adapter |
-| `web/app/webrtc-client.ts` | Browser legacy Trystero fallback |
 | `web/app/browser-terminal.tsx` | xterm PTY widget |
 | `web/public/network-config.json` | Delegated routing и static relay config |
 | `web/vite.config.ts` | Static base path, PWA manifest и Workbox |
@@ -638,7 +626,7 @@ npm pack ./web --dry-run
 | `README.md` / `README.RU.md` | Обзор продукта и основные примеры |
 | `docs/PROJECT_CONTEXT.md` / `.RU.md` | Быстрая полная передача контекста |
 | `docs/ARCHITECTURE.md` / `.RU.md` | Подробные алгоритмы и data flow |
-| `docs/WEBRTC_MIGRATION.md` / `.RU.md` | Native WebRTC и условия удаления Trystero |
+| `docs/WEBRTC_MIGRATION.md` / `.RU.md` | Отчёт об удалении и soak-матрица native WebRTC |
 | `docs/GS_NETCAT_COMPAT.md` / `.RU.md` | Точная семантика `-d -p -q -S -T -i` |
 | `docs/INSTALLATION.md` / `.RU.md` | Установка и первое подключение |
 | `docs/RELAY_API.md` / `.RU.md` | Programmatic relay API |
@@ -658,7 +646,6 @@ npm pack ./web --dry-run
 - нет gs-netcat `Ctrl-e c` command console и PTY `get`/`put`;
 - browser identity не сохраняется;
 - публичные discovery/signaling системы не имеют SLA проекта;
-- Trystero dependencies остаются на период совместимости;
 - полностью выгруженная или перезагруженная browser tab не может сохранить
   находящуюся в памяти identity PTY-сессии.
 
@@ -667,15 +654,14 @@ npm pack ./web --dry-run
 1. длительный большой PTY output и backpressure;
 2. reconnect в background browser tab;
 3. cross-country или restrictive-NAT discovery;
-4. дублирующие native/legacy WebRTC channels;
+4. дублирующие Nostr/WebTorrent WebRTC candidates;
 5. порядок half-close/EOF;
 6. secure context и WSS enforcement в браузере;
 7. разрешение npm packages и subpath exports.
 
-До удаления Trystero нужно провести длительные тесты browser → Linux, macOS →
-Linux, Chrome/Firefox/Safari, разных NAT, sleep/wake, background tabs,
-многочасового high-volume PTY, повторных reconnect и совместимости старых и
-новых опубликованных версий.
+Нужно продолжать длительные тесты browser → Linux, macOS → Linux,
+Chrome/Firefox/Safari, разных NAT, sleep/wake, background tabs, многочасового
+high-volume PTY, повторных reconnect и wire-совместимости опубликованных версий.
 
 ## 19. Checklist передачи для будущих агентов
 
@@ -708,7 +694,8 @@ Linux, Chrome/Firefox/Safari, разных NAT, sleep/wake, background tabs,
 - Статическое приложение GitHub Pages может использовать WebSocket, WebRTC,
   DHT и delegated routing из browser JavaScript; «без backend» не означает
   «только offline».
-- Trystero ещё присутствует, но только как отложенный compatibility fallback.
+- WebRTC runtime dependencies ограничены реализацией платформы и собственным
+  core-кодом signaling/controller.
 - `p2p-netcat/core` и `p2p-netcat-core` — одновременно действующие API.
 - `p2p-netcat/relay` работает только в Node.js.
 - `-p` теперь означает forwarding port; локальный transport port libp2p —

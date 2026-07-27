@@ -20,8 +20,8 @@ Relay v2.
   взаимный admission, RouteRecord, test vectors и граница будущего Go-порта;
 - [Руководство по установке](docs/INSTALLATION.RU.md) — npm one-liner, первое
   подключение, обновление, удаление, identity и диагностика;
-- [Миграция WebRTC без Trystero](docs/WEBRTC_MIGRATION.RU.md) — текущая граница
-  зависимости, собственный signaling и безопасные этапы удаления;
+- [Отчёт о миграции на native WebRTC](docs/WEBRTC_MIGRATION.RU.md) —
+  завершённое удаление зависимости, устройство signaling и soak-тесты;
 - [Браузерный PWA-клиент](web/README.RU.md) — сборка, GitHub Pages,
   `network-config.json` и настройка WSS relay;
 - [API общей JavaScript-библиотеки](packages/core/README.RU.md) — browser-safe
@@ -46,9 +46,8 @@ Relay v2.
   зашифрованным signaling, взаимным admission и без публичного PeerId lookup;
 - собственный прямой WebRTC-путь, который и в Node.js, и в браузере параллельно
   использует подписанные события публичных Nostr relay и WebTorrent trackers;
-- Nostr trickle ICE, WebTorrent full-SDP fallback и переключатели
-  `--no-trystero` / native-only в PWA для тестирования миграции;
-- отложенный Trystero fallback для совместимости с уже опубликованными peers;
+- Nostr trickle ICE и WebTorrent full-SDP fallback, реализованные в собственном
+  core без стороннего WebRTC orchestration runtime;
 - общий пул из девяти STUN endpoint для WebRTC NAT traversal в CLI и браузере;
 - ограниченный сквозной flow control от `node-pty` через транспорт и Web Worker
   до xterm;
@@ -58,7 +57,7 @@ Relay v2.
 - собственный relay-режим;
 - TCP forwarding, SOCKS4/4a/5, quiet, Tor и настоящий PTY в стиле gs-netcat;
 - `-l`, `-k`, `-w`, `-d`, `-p`, `-q`, `-S`, `-T`, `-i`, `-z`, `-e`, `-4`,
-  `-6`, `--no-trystero` и подробный режим;
+  `-6` и подробный режим;
 - аутентифицированное шифрование через QUIC TLS 1.3 или Noise, включая
   соединения через relay.
 
@@ -107,11 +106,10 @@ QUIC включён по умолчанию. Используйте `--no-quic` 
 независимо. `-i` теперь включает интерактивный PTY, поэтому короткая опция файла
 идентичности перенесена на `-I`, а длинная `--identity` не изменилась.
 
-Передайте `--no-trystero` обоим peers, чтобы проверить собственную WebRTC
-реализацию без запуска отложенного compatibility fallback. Автоматическая
+WebRTC во всех режимах использует только собственную реализацию. Автоматическая
 локальная матрица запускается командой `npm run soak:webrtc`; профили и
-ограничения описаны в документе
-[Миграция WebRTC без Trystero](docs/WEBRTC_MIGRATION.RU.md).
+ограничения описаны в
+[отчёте о миграции](docs/WEBRTC_MIGRATION.RU.md).
 
 ## Быстрый запуск
 
@@ -168,9 +166,8 @@ p2p-nc -i
 ```
 
 Эти команды запускаются на разных компьютерах. Приватный режим публикует
-вращающиеся provider CID из секрета, шифрует native WebRTC signaling, отключает
-публичный compatibility-путь Trystero и выполняет взаимный admission до приёма
-PTY или прикладных байтов. Формат подробно описан в
+вращающиеся provider CID из секрета, шифрует native WebRTC signaling и выполняет
+взаимный admission до приёма PTY или прикладных байтов. Формат подробно описан в
 [wire-спецификации](docs/PAIRING_PROTOCOL.RU.md).
 
 Серверный ключ создаётся в `~/.config/p2p-netcat/identity.key` с правами `0600`.
@@ -278,16 +275,14 @@ Actions**; workflow сам учтёт подпуть репозитория пр
 По умолчанию relay-адрес в браузере не требуется. Клиент параллельно запускает
 native WebRTC signaling через подписанные Nostr events и публичные WebTorrent
 trackers, а также libp2p-поиск через подписанные GossipSub-объявления, HTTP
-Delegated Routing и IPFS Amino DHT. Legacy Trystero запускается только если
-native WebRTC не подключился за четыре секунды. Побеждает первый
-аутентифицированный канал. Найденные libp2p multiaddr также проверяются
-параллельно.
+Delegated Routing и IPFS Amino DHT. Побеждает первый аутентифицированный канал.
+Найденные libp2p multiaddr также проверяются параллельно.
 
 GossipSub discovery по умолчанию включён в CLI-узлах, relay и браузерном Worker.
 В CLI и relay его можно выключить опцией `--no-pubsub`. Это дополнительный путь
 поиска, а не глобальная гарантия rendezvous: обоим пирам нужна связность с
-совместимой GossipSub mesh. Native WebRTC и compatibility fallback используют
-общий STUN-пул для улучшения прямого NAT traversal, но один STUN не заменяет
+совместимой GossipSub mesh. Native WebRTC использует общий STUN-пул для
+улучшения прямого NAT traversal, но один STUN не заменяет
 TURN или Circuit Relay, если обе стороны находятся за жёстким NAT.
 
 Если у сервера опубликованы только TCP/QUIC-адреса или автоматический поиск не
@@ -433,7 +428,7 @@ p2p-nc relay --help
    provider record или DHT.
 5. При `--relay` строится маршрут `relay/p2p-circuit/p2p/server`.
 6. Без явного маршрута параллельно запускаются native Nostr/WebTorrent WebRTC
-   и libp2p-поиск; отложенный Trystero сохраняет совместимость со старыми peers.
+   и libp2p-поиск.
 7. QUIC TLS 1.3, Noise или подписанный WebRTC challenge аутентифицирует PeerId.
 8. stdin/stdout или PTY-фреймы передаются с ограниченным backpressure. Браузер
    подтверждает вывод только после его отрисовки в xterm.
@@ -463,9 +458,8 @@ libp2p QUIC-потоки без лишних HTTP-запросов, заголо
 - WebRTC увеличивает шанс прямого соединения, но symmetric NAT и блокировка UDP
   могут потребовать TURN или Circuit Relay; публичные trackers не дают SLA.
 - Native adapters подключаются к нескольким публичным Nostr relay и WebTorrent
-  trackers и автоматически восстанавливают signaling. Trystero временно
-  сохранён только как отложенный compatibility fallback. Сторонняя
-  инфраструктура не гарантирует 100% доступность.
+  trackers и автоматически восстанавливают signaling. Сторонняя инфраструктура
+  не гарантирует 100% доступность.
 - Свёрнутая или фоновая страница продолжит тот же PTY, пока браузер сохраняет
   её JavaScript-контекст. Полная выгрузка вкладки из памяти или reload создаёт
   новую временную signaling identity, поэтому такой клиент начнёт новый PTY.

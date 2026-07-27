@@ -27,11 +27,10 @@ test("builds as a static PWA without a server bundle", async () => {
 });
 
 test("runs the network stack in a dedicated Web Worker", async () => {
-  const [worker, client, nativeWebRtc, legacyWebRtc, core, signaling, endpoint, page, localization, terminal, main, styles] = await Promise.all([
+  const [worker, client, nativeWebRtc, core, signaling, endpoint, page, localization, terminal, main, styles, rootPackage, webPackage] = await Promise.all([
     readFile(new URL("../app/p2p.worker.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/p2p-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/native-webrtc-client.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/webrtc-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../../packages/core/src/index.js", import.meta.url), "utf8"),
     readFile(new URL("../../packages/core/src/signaling.js", import.meta.url), "utf8"),
     readFile(new URL("../../packages/core/src/native-endpoint.js", import.meta.url), "utf8"),
@@ -40,6 +39,8 @@ test("runs the network stack in a dedicated Web Worker", async () => {
     readFile(new URL("../app/browser-terminal.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/main.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
   assert.match(worker, /p2p-netcat-core/);
@@ -70,9 +71,9 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(nativeWebRtc, /createTorrentSignalingSession/);
   assert.match(nativeWebRtc, /verifyWebRtcAuthResponse/);
   assert.match(nativeWebRtc, /defaultRtcConfiguration/);
-  assert.match(legacyWebRtc, /@trystero-p2p\/torrent/);
-  assert.match(client, /LEGACY_WEBRTC_FALLBACK_DELAY_MS/);
-  assert.match(client, /pairingToken\.length === 0 && !nativeOnly/);
+  assert.doesNotMatch(client, /trystero/i);
+  assert.doesNotMatch(rootPackage, /@trystero-p2p/);
+  assert.doesNotMatch(webPackage, /@trystero-p2p/);
   assert.match(signaling, /class NostrSignalingSession/);
   assert.match(signaling, /class TorrentSignalingSession/);
   assert.match(signaling, /trickleIce: true/);
@@ -88,8 +89,6 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(worker, /connectWithTimeout/);
   assert.match(worker, /libp2p не установил соединение за/);
   assert.match(terminal, /terminal\.write\(bytes, resolve\)/);
-  assert.match(legacyWebRtc, /defaultRelayUrls/);
-  assert.match(legacyWebRtc, /trickleIce: true/);
   assert.match(core, /flowWindowBytes/);
   assert.match(core, /ack:/);
   assert.match(core, /peerDisconnected/);
@@ -122,10 +121,8 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(localization, /Interactive PTY/);
   assert.match(localization, /Интерактивный PTY/);
   assert.match(page, /p2p-netcat-interactive/);
-  assert.match(page, /p2p-netcat-native-only/);
-  assert.match(page, /get\("native-only"\)/);
-  assert.match(localization, /Native WebRTC only/);
-  assert.match(localization, /Только native WebRTC/);
+  assert.doesNotMatch(page, /p2p-netcat-native-only/);
+  assert.doesNotMatch(page, /get\("native-only"\)/);
   assert.doesNotMatch(page, /localStorage\.(?:setItem|getItem)\([^)]*pairing/i);
   assert.match(page, /lazy\(\(\) => import\("\.\/browser-terminal"\)\)/);
   assert.match(client, /PtyFrameDecoder/);

@@ -21,9 +21,6 @@ export const PUBSUB_DISCOVERY_INTERVAL_MS = 10_000
 export const WEBRTC_RECONNECT_GRACE_MS = 120_000
 export const WEBRTC_DATA_ACTION = 'pnc-data-v1'
 export const WEBRTC_CONTROL_ACTION = 'pnc-ctl-v1'
-export const TRYSTERO_APP_ID = WEBRTC_APP_ID
-export const TRYSTERO_AUTH_VERSION = WEBRTC_AUTH_VERSION
-export const TRYSTERO_RECONNECT_GRACE_MS = WEBRTC_RECONNECT_GRACE_MS
 export const PTY_FRAME_DATA = 0
 export const PTY_FRAME_RESIZE = 1
 export const PTY_FRAME_HEADER_LENGTH = 5
@@ -210,6 +207,7 @@ export function webRtcRoomId (peerId, service = DEFAULT_SERVICE) {
 export function webRtcAuthPayload (peerId, service, challenge) {
   const nonce = asBytes(challenge)
   if (nonce.byteLength !== 32) throw new Error(`WebRTC challenge must contain 32 bytes, received: ${nonce.byteLength}`)
+  // This historical domain is frozen for native peer compatibility; it is not a runtime Trystero dependency.
   const context = new TextEncoder().encode(`p2p-netcat/trystero-auth/v1\0${webRtcRoomId(peerId, service)}\0`)
   const payload = new Uint8Array(context.byteLength + nonce.byteLength)
   payload.set(context)
@@ -564,12 +562,6 @@ export class WebRtcStream {
   }
 }
 
-export const trysteroRoomId = webRtcRoomId
-export const trysteroAuthPayload = webRtcAuthPayload
-export const encodeTrysteroAuthResponse = encodeWebRtcAuthResponse
-export const decodeTrysteroAuthResponse = decodeWebRtcAuthResponse
-export const TrysteroStream = WebRtcStream
-
 export function createWebRtcActionHub (room, {
   onStream,
   onStreamClosed,
@@ -638,8 +630,6 @@ export function createWebRtcActionHub (room, {
 
   return Object.freeze({ streamFor, close })
 }
-
-export const createTrysteroHub = createWebRtcActionHub
 
 function addressText (address) {
   if (address?.multiaddr != null) return address.multiaddr.toString()

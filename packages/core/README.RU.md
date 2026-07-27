@@ -103,12 +103,10 @@ flow credits. p2p-netcat по умолчанию использует
 
 Core теперь содержит native signaling adapters, SDP controller, бинарный
 протокол data channel и аутентифицированный endpoint controller. CLI и PWA
-используют эту реализацию первой. Прежние `TrysteroStream`,
-`trysteroRoomId()`, authentication helpers и константы сохранены как aliases,
-а сам Trystero временно запускается как отложенный compatibility fallback во
-время тестов в реальных сетях. В новом коде нужно использовать независимые от
-реализации WebRTC-имена. Протокол и критерии удаления зависимости описаны в
-[документе миграции](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.RU.md).
+используют только эту реализацию. Прежние имена, привязанные к конкретной
+реализации, удалены; публичный API использует нейтральные WebRTC-имена. Протокол
+и матрица проверки описаны в
+[отчёте о миграции](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.RU.md).
 
 Каждый `NativeSignalingSession` предоставляет read-only capability
 `trickleIce`. Для Nostr она равна `true`, для tracker — `false`. Поэтому

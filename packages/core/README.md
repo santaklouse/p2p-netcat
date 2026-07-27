@@ -102,12 +102,10 @@ close immediately.
 
 Core now contains the native signaling adapters, SDP controller, binary
 data-channel protocol, and authenticated endpoint controller. The CLI and PWA
-use this implementation first. The former `TrysteroStream`,
-`trysteroRoomId()`, authentication helpers, and constants remain aliases, and
-Trystero itself is a delayed compatibility fallback during real-network soak
-testing. New code should use the implementation-neutral WebRTC names. See the
-[migration document](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.md)
-for the protocol and removal criteria.
+use this implementation exclusively. The former implementation-specific aliases
+have been removed; all public names are transport-neutral WebRTC APIs. See the
+[migration record](https://github.com/santaklouse/p2p-netcat/blob/main/docs/WEBRTC_MIGRATION.md)
+for the protocol and validation matrix.
 
 Every `NativeSignalingSession` exposes a read-only `trickleIce` capability.
 Nostr sessions set it to `true`; tracker sessions set it to `false`. Endpoint

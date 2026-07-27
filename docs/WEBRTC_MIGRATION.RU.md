@@ -1,11 +1,11 @@
-# Миграция WebRTC без Trystero
+# Отчёт о миграции на native WebRTC
 
 [English](WEBRTC_MIGRATION.md) | **Русский**
 
-Теперь `p2p-netcat-core` владеет WebRTC-протоколом, контроллером соединения и
-двумя signaling-адаптерами для публичной инфраструктуры. Trystero больше не
-является основным путём. Он временно остаётся отложенным fallback совместимости
-до завершения длительных тестов native-пути между браузерами, Linux и macOS.
+`p2p-netcat-core` владеет WebRTC-протоколом, контроллером соединения и двумя
+signaling-адаптерами для публичной инфраструктуры. Runtime Trystero, adapters,
+совместимые aliases API, переключатель UI, флаг CLI и npm dependencies удалены.
+Node.js и статическая PWA теперь используют один native signaling design.
 
 Отказ от Trystero не отменяет необходимость rendezvous-инфраструктуры. Два
 компьютера за NAT не могут обменяться SDP, зная только PeerId. Новый код
@@ -21,9 +21,10 @@
 | Подписанный Nostr signaling adapter | Реализован в core |
 | WebTorrent WebSocket tracker signaling adapter | Реализован в core |
 | Nostr trickle ICE с ограниченной перестановкой candidates | Реализован в core |
-| Интеграция с CLI и статической PWA | Native запускается первым; доступен native-only режим |
+| Интеграция с CLI и статической PWA | Только native |
 | Автоматическая локальная WebRTC soak-матрица | Еженедельно и вручную на Linux/macOS |
-| Удаление Trystero npm dependencies | После длительных тестов в реальных сетях |
+| Удаление Trystero npm dependencies и adapters | Завершено |
+| Удаление implementation-specific compatibility aliases | Завершено |
 
 Браузерное приложение по-прежнему состоит только из статических файлов для
 GitHub Pages. В Node.js `RTCPeerConnection` предоставляет `@roamhq/wrtc`, а
@@ -120,27 +121,28 @@ import {
 принимают внедряемые конструкторы `WebSocket` и `RTCPeerConnection`, поэтому
 они browser-safe и тестируются без Node.js globals.
 
-## Период совместимости
+## Результат удаления
 
-CLI listener сейчас открывает native adapters и по умолчанию legacy Trystero
-rooms. Клиент сразу запускает native signaling, а Trystero — только если
-native-канал не победил за четыре секунды. Общая client-session identity
-позволяет новому listener отклонить дублирующие native/legacy-каналы одного
-нового клиента.
+Отложенной legacy-ветки больше нет. CLI и PWA соревнуют только полный
+libp2p-маршрут и native WebRTC. Внутри native WebRTC параллельно работают
+независимые Nostr и WebTorrent signaling sessions, проверяется запрошенный
+PeerId, а проигравшие попытки закрываются.
 
-Чтобы проверить именно будущий путь после удаления зависимости, передайте
-`--no-trystero` обоим CLI peers:
+Подробный режим CLI показывает настоящий production-путь:
 
 ```bash
-p2p-nc -l -i -v --no-trystero 31337
-p2p-nc -i -v --no-trystero 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
+p2p-nc -l -i -v 31337
+p2p-nc -i -v 12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9 31337
 ```
 
-Во второй команде замените PeerId значением, напечатанным listener. В PWA
-включите **Только native WebRTC** в расширенных настройках подключения.
-Query-параметр `?native-only=1` включает тот же режим для повторяемых browser
-runs. Pairing token всегда отключает публичный Trystero независимо от
-переключателя.
+Во второй команде замените PeerId значением, напечатанным listener. Удалённая
+опция `--no-trystero` и переключатель PWA native-only больше не нужны: теперь
+это единственная WebRTC-реализация.
+
+Authentication transcript намеренно сохраняет исторический domain
+`p2p-netcat/trystero-auth/v1`. Его изменение нарушило бы wire-совместимость
+существующих native peers и будущего Go-порта. Это замороженное значение
+протокола, а не импорт пакета или runtime dependency.
 
 ## Автоматическая soak-матрица
 
@@ -183,7 +185,8 @@ backpressure, разделение capability адаптеров, изоляци
 между странами и реальные сочетания NAT/firewall. Они остаются release gates,
 а не свойствами, которые якобы гарантирует автоматический runner.
 
-Trystero dependencies будут удалены после длительного прохождения матрицы:
+Удаление зависимости завершено. Эту real-network матрицу нужно продолжать
+выполнять как постоянный stability gate:
 
 - browser → Linux CLI и macOS CLI → Linux CLI между разными странами;
 - Chrome, Firefox и Safari;
@@ -191,7 +194,7 @@ Trystero dependencies будут удалены после длительног�
 - фоновые вкладки и сон/пробуждение;
 - большой непрерывный вывод PTY в течение нескольких часов;
 - повторные потери и восстановления сети в пределах 120 секунд;
-- старый опубликованный client → новый listener и новый client → старый listener.
+- текущий браузер → текущий CLI и обратное направление, где оно применимо.
 
 STUN обнаруживает NAT mapping, но не является relay. При symmetric NAT или
 заблокированном UDP всё ещё может потребоваться TURN либо настроенный libp2p

@@ -123,12 +123,9 @@ the resulting candidate multiaddrs are the parallel part.
 Native WebRTC runs in parallel with the complete libp2p branch. Server and
 client derive a deterministic room from `PeerId + logical port`, hash it into a
 signaling topic, and race project-owned Nostr and WebTorrent tracker adapters.
-In ordinary PeerId mode public relays and trackers carry SDP signaling, and a
-Trystero compatibility attempt starts after four seconds if native WebRTC has
-not already won. With a pairing token, the topic is secret-derived, SDP and ICE
-are AES-256-GCM encrypted, and Trystero is not started. `--no-trystero` in the
-CLI and **Native WebRTC only** in the PWA disable the compatibility attempt in
-ordinary PeerId mode as well.
+In ordinary PeerId mode public relays and trackers carry SDP signaling. With a
+pairing token, the topic is secret-derived and SDP and ICE are AES-256-GCM
+encrypted. Both modes use the same project-owned signaling adapters.
 
 Each connection attempt sends a random 32-byte challenge. The CLI server signs
 a domain-separated transcript with its persistent Ed25519 key; the client
@@ -151,7 +148,6 @@ events through several relays. The endpoint keeps a bounded 20-second candidate
 cache for relay reordering. Both adapters deduplicate signaling and reconnect
 WebSockets with bounded exponential backoff. Once authenticated, a 15-second
 `ping`/`pong` control exchange keeps an otherwise idle data channel active.
-Trystero is retained only for compatibility with published peers.
 
 When a native data channel closes unexpectedly, `WebRtcStream` enters
 `reconnecting` for 120 seconds, keeps the async iterator open, and blocks

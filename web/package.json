@@ -70,7 +70,6 @@
     "@libp2p/websockets": "^10.1.17",
     "@libp2p/webtransport": "^6.0.32",
     "@multiformats/multiaddr": "^13.0.1",
-    "@trystero-p2p/torrent": "^0.25.3",
     "@types/node": "^22.20.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",

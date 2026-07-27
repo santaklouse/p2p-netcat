@@ -211,7 +211,7 @@ test('общий WebRTC action hub сохраняет тот же поток п�
   assert.equal(stream.status, 'closed')
 })
 
-test('native WebRTC endpoint аутентифицирует PeerId и передаёт бинарный поток без Trystero', async () => {
+test('native WebRTC endpoint аутентифицирует PeerId и передаёт бинарный поток', async () => {
   const privateKey = await generateKeyPair('Ed25519')
   const serverPeerId = peerIdFromPrivateKey(privateKey).toString()
   const service = 31337
