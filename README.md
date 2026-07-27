@@ -9,6 +9,9 @@ Amino DHT, mDNS, and Circuit Relay v2.
 
 ## Documentation
 
+- [Project context and maintainer handoff](docs/PROJECT_CONTEXT.md) — current
+  packages, decisions, architecture, invariants, limitations, source map, and
+  continuation checklist for developers and language models;
 - [Detailed architecture and connection algorithm](docs/ARCHITECTURE.md) —
   identity, discovery, route selection, CLI, browser, relay, encryption,
   backpressure, and failure handling;
