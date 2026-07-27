@@ -256,8 +256,10 @@ Delegated Routing и DHT являются последовательными fal
 Параллельно со всей libp2p-веткой запускается native WebRTC. Сервер и клиент
 выводят детерминированную room из `PeerId + логический порт`, хешируют её в
 signaling topic и соревнуют собственные Nostr и WebTorrent tracker adapters.
-Публичные relay и trackers переносят только SDP signaling. Если native WebRTC
-не победил за четыре секунды, запускается Trystero compatibility attempt.
+В обычном режиме PeerId публичные relay и trackers переносят SDP signaling.
+Если native WebRTC не победил за четыре секунды, запускается Trystero
+compatibility attempt. С pairing token тема выводится из секрета, SDP и ICE
+шифруются AES-256-GCM, а Trystero не запускается.
 
 Каждая попытка отправляет случайный 32-байтовый challenge. CLI-сервер
 подписывает domain-separated transcript постоянным Ed25519-ключом; клиент
@@ -306,7 +308,11 @@ PubSub является дополнительной веткой, а не са�
 объявление распространяется только через уже подключённых подписчиков той же
 темы. Публичные IPFS bootstrap-узлы не обязаны передавать тему приложения.
 Опция `--no-pubsub` отключает эту ветку. Relay p2p-netcat участвует по умолчанию
-и может передавать объявления между уже подключёнными клиентами.
+и включает GossipSub peer exchange. Явные relay-адреса становятся
+`directPeers`, поэтому mesh поддерживает соединение с ними. Приватный pairing
+отключает глобальные peer-discovery announcements CLI, не включает браузерный
+Worker в публичную discovery-тему и использует вращающиеся секретные DHT
+provider keys.
 
 ### Ручной relay
 
@@ -357,6 +363,13 @@ Discovery-службы возвращают только маршрут. Они 
 4. При несовпадении PeerId соединение отклоняется.
 5. Yamux создаёт мультиплексированный поток с protocol ID логического порта.
 6. Сервер принимает поток только при зарегистрированном protocol ID.
+
+При наличии pairing token внутри уже защищённого потока выполняется второй
+взаимный admission handshake. Клиент и сервер обмениваются фиксированными
+HMAC-SHA-256 frames с независимыми nonce; прикладные байты не передаются, пока
+обе стороны не доказали знание token. Полный межъязыковый формат и
+interoperability vectors для Go описаны в
+[PAIRING_PROTOCOL.RU.md](PAIRING_PROTOCOL.RU.md).
 
 При прямом QUIC транспорт защищён QUIC TLS 1.3. Для остальных libp2p-соединений
 используется Noise. Circuit Relay переносит уже защищённый поток: relay видит
@@ -506,7 +519,11 @@ PeerId не содержит текущий IP-адрес. Поэтому абс
 
 | Файл | Ответственность |
 |---|---|
-| `packages/core/src/index.js` | Валидация, protocol ID, PTY codec, relay dial plan, PubSub/STUN-конфигурация |
+| `packages/core/src/pairing.js` | Pairing token, HKDF, вращающиеся rendezvous CID и AEAD |
+| `packages/core/src/session-auth.js` | Межъязыковые mutual admission frames |
+| `packages/core/src/authenticated-stream.js` | Stream adapter для admission handshake |
+| `packages/core/src/route-record.js` | Подписанный детерминированный route-record codec |
+| `packages/core/src/index.js` | Публичные browser-safe exports ядра |
 | `src/identity.js` | Создание и загрузка Ed25519-ключа CLI |
 | `src/node.js` | Сборка Node.js libp2p-узла и подписанного PubSub discovery |
 | `src/relay.js` | Публичный API жизненного цикла `p2p-netcat/relay` |
@@ -536,6 +553,7 @@ PeerId не содержит текущий IP-адрес. Поэтому абс
 - Автоматическое переподключение к trackers повышает доступность, но не может
   сделать стороннюю signaling-сеть надёжной на 100%.
 - Публичные IPFS-узлы не гарантируют relay для произвольного трафика.
-- Нет allowlist PeerId и прикладной авторизации поверх libp2p identity.
+- В обычном PeerId-режиме нет allowlist или прикладной авторизации; приватный
+  pairing добавляет admission по bearer token.
 - IPFS HTTP gateway не является транспортом или Circuit Relay.
 - PWA не превращает сетевой P2P-сеанс в офлайн-функцию.

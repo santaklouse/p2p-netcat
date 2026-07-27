@@ -58,6 +58,8 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(worker, /pubsubPeerDiscovery\(/);
   assert.match(worker, /gossipsub\(/);
   assert.match(worker, /PUBSUB_DISCOVERY_TOPIC/);
+  assert.match(worker, /privateDiscovery[\s\S]*?pubsubPeerDiscovery/);
+  assert.match(client, /privateDiscovery: pairingToken\.trim\(\)\.length > 0/);
   assert.match(worker, /indexedDB\.open/);
   assert.match(worker, /workerScope\.crypto\?\.subtle/);
   assert.match(worker, /Откройте приложение по HTTPS/);
@@ -117,6 +119,7 @@ test("runs the network stack in a dedicated Web Worker", async () => {
   assert.match(localization, /Interactive PTY/);
   assert.match(localization, /Интерактивный PTY/);
   assert.match(page, /p2p-netcat-interactive/);
+  assert.doesNotMatch(page, /localStorage\.(?:setItem|getItem)\([^)]*pairing/i);
   assert.match(page, /lazy\(\(\) => import\("\.\/browser-terminal"\)\)/);
   assert.match(client, /PtyFrameDecoder/);
   assert.match(client, /encodePtyData/);

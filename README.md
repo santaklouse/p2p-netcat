@@ -15,6 +15,9 @@ Amino DHT, mDNS, and Circuit Relay v2.
 - [Detailed architecture and connection algorithm](docs/ARCHITECTURE.md) —
   identity, discovery, route selection, CLI, browser, relay, encryption,
   backpressure, and failure handling;
+- [Private pairing and wire protocol](docs/PAIRING_PROTOCOL.md) — canonical
+  CBOR token, rotating rendezvous, encrypted signaling, mutual admission,
+  RouteRecord, interoperability vectors, and the Go port boundary;
 - [Installation guide](docs/INSTALLATION.md) — npm one-liner, first connection,
   updates, removal, identities, and troubleshooting;
 - [WebRTC migration away from Trystero](docs/WEBRTC_MIGRATION.md) — current
@@ -38,6 +41,8 @@ Amino DHT, mDNS, and Circuit Relay v2.
 - Logical ports, allowing one PeerId to expose multiple services;
 - PeerId-only discovery through mDNS, signed GossipSub announcements, and the
   IPFS Amino DHT;
+- optional private pairing tokens with rotating DHT keys, encrypted signaling,
+  mutual admission, and no public PeerId lookup;
 - a project-owned direct WebRTC path that races signed public Nostr relays and
   WebTorrent trackers in both Node.js and the browser;
 - a delayed Trystero fallback for compatibility with already published peers;
@@ -128,6 +133,35 @@ To print the PeerId without starting a listener:
 ```bash
 p2p-nc id
 ```
+
+### Private pairing
+
+Generate a bearer token from the same persistent identity used by the listener:
+
+```bash
+p2p-nc token 8080 --identity ~/.config/p2p-netcat/identity.key
+```
+
+Transfer the resulting `pnc1_...` value through a trusted channel. On both
+computers, prefer an environment variable so the secret is not present in the
+process arguments:
+
+```bash
+export P2P_NETCAT_TOKEN='pnc1_...'
+```
+
+The listener and client can now omit PeerId and port:
+
+```bash
+p2p-nc -l -i
+p2p-nc -i
+```
+
+Run those commands on different computers. Private mode publishes rotating
+secret-derived provider CIDs, encrypts native WebRTC signaling, disables the
+public Trystero compatibility path, and performs mutual token admission before
+PTY or stream data is accepted. See the
+[wire specification](docs/PAIRING_PROTOCOL.md).
 
 The server key is created at `~/.config/p2p-netcat/identity.key` with `0600`
 permissions. Deleting the key creates a new PeerId. The client identity is

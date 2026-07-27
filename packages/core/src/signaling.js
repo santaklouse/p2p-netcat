@@ -1,4 +1,12 @@
 import { schnorr } from '@noble/secp256k1'
+import {
+  assertPairingTokenUsable,
+  base64UrlDecode,
+  base64UrlEncode,
+  deriveRendezvousId,
+  openPairingPayload,
+  sealPairingPayload
+} from './pairing.js'
 
 const encoder = new TextEncoder()
 const SIGNAL_VERSION = 2
@@ -7,6 +15,7 @@ const NOSTR_EVENT_KIND = 25050
 const TRACKER_ANNOUNCE_INTERVAL_MS = 10_000
 const RECONNECT_MIN_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
+const ENCRYPTED_SIGNAL_PREFIX = 'pnc-signal-v1:'
 
 export const NATIVE_SIGNAL_VERSION = SIGNAL_VERSION
 export const DEFAULT_NOSTR_SIGNALING_URLS = Object.freeze([
@@ -34,9 +43,13 @@ export function createSignalingSessionId () {
   return randomHex(16)
 }
 
-export async function nativeSignalingRoomTopic (roomId) {
+export async function nativeSignalingRoomTopic (roomId, { pairingToken } = {}) {
   const room = String(roomId ?? '').trim()
   if (room.length === 0) throw new Error('Native signaling roomId is required')
+  if (pairingToken != null) {
+    const token = assertPairingTokenUsable(pairingToken)
+    return deriveRendezvousId(token, { purpose: 'signaling', epoch: 0 })
+  }
   return toHex(await digest('SHA-256', `p2p-netcat:native-webrtc:v${SIGNAL_VERSION}:${room}`))
 }
 
@@ -45,15 +58,18 @@ export async function createNostrSignalingSession ({
   peerId = createSignalingPeerId(),
   urls = DEFAULT_NOSTR_SIGNALING_URLS,
   WebSocket: WebSocketImpl = globalThis.WebSocket,
-  onStatus = () => {}
+  onStatus = () => {},
+  pairingToken
 }) {
-  const topic = await nativeSignalingRoomTopic(roomId)
+  const token = pairingToken == null ? null : assertPairingTokenUsable(pairingToken)
+  const topic = await nativeSignalingRoomTopic(roomId, { pairingToken: token })
   return new NostrSignalingSession({
     topic,
     peerId: normalizeSignalingPeerId(peerId),
     urls: normalizeWebSocketUrls(urls),
     WebSocketImpl,
-    onStatus
+    onStatus,
+    pairingToken: token
   })
 }
 
@@ -62,9 +78,11 @@ export async function createTorrentSignalingSession ({
   peerId = createSignalingPeerId(),
   urls = DEFAULT_TORRENT_SIGNALING_URLS,
   WebSocket: WebSocketImpl = globalThis.WebSocket,
-  onStatus = () => {}
+  onStatus = () => {},
+  pairingToken
 }) {
-  const topic = await nativeSignalingRoomTopic(roomId)
+  const token = pairingToken == null ? null : assertPairingTokenUsable(pairingToken)
+  const topic = await nativeSignalingRoomTopic(roomId, { pairingToken: token })
   const infoHash = Array.from(
     await digest('SHA-1', topic),
     byte => byte.toString(36)
@@ -77,7 +95,8 @@ export async function createTorrentSignalingSession ({
     peerId: normalizeSignalingPeerId(peerId),
     urls: normalizeWebSocketUrls(urls),
     WebSocketImpl,
-    onStatus
+    onStatus,
+    pairingToken: token
   })
 }
 
@@ -86,13 +105,15 @@ class SignalingSession {
   peerId
   topic
   ready
+  pairingToken
   #listeners = new Set()
 
-  constructor ({ name, peerId, topic, ready }) {
+  constructor ({ name, peerId, topic, ready, pairingToken }) {
     this.name = name
     this.peerId = peerId
     this.topic = topic
     this.ready = ready
+    this.pairingToken = pairingToken
   }
 
   subscribe (listener) {
@@ -101,8 +122,8 @@ class SignalingSession {
     return () => this.#listeners.delete(listener)
   }
 
-  _emit (message) {
-    const signal = normalizeIncomingSignal(message, this.topic, this.peerId)
+  async _emit (message) {
+    const signal = await decodeIncomingSignal(message, this.topic, this.peerId, this.pairingToken)
     if (signal == null) return
     for (const listener of this.#listeners) {
       try {
@@ -125,12 +146,12 @@ class NostrSignalingSession extends SignalingSession {
   #seenEvents = new Map()
   #messageChain = Promise.resolve()
 
-  constructor ({ topic, peerId, urls, WebSocketImpl, onStatus }) {
+  constructor ({ topic, peerId, urls, WebSocketImpl, onStatus, pairingToken }) {
     let resolveReady
     const ready = new Promise(resolve => {
       resolveReady = resolve
     })
-    super({ name: 'Native Nostr', peerId, topic, ready })
+    super({ name: 'Native Nostr', peerId, topic, ready, pairingToken })
     if (typeof WebSocketImpl !== 'function') throw new TypeError('WebSocket constructor is required for Nostr signaling')
     this.#WebSocket = WebSocketImpl
     this.#urls = urls
@@ -144,7 +165,7 @@ class NostrSignalingSession extends SignalingSession {
 
   async publish (message) {
     if (this.#closed) throw new Error('Native Nostr signaling session is closed')
-    const signal = normalizeOutgoingSignal(message, this.topic, this.peerId)
+    const signal = await encodeOutgoingSignal(message, this.topic, this.peerId, this.pairingToken)
     const event = await this.#createEvent(signal)
     this.#outbox.push({ event, createdAt: Date.now() })
     this.#pruneOutbox()
@@ -257,7 +278,7 @@ class NostrSignalingSession extends SignalingSession {
 
     this.#seenEvents.set(event.id, Date.now())
     this.#pruneSeenEvents()
-    this._emit(JSON.parse(event.content))
+    await this._emit(JSON.parse(event.content))
     this.#status(url, 'message')
   }
 
@@ -308,13 +329,14 @@ class TorrentSignalingSession extends SignalingSession {
   #seenSignals = new Map()
   #closed = false
   #resolveReady
+  #messageChain = Promise.resolve()
 
-  constructor ({ topic, infoHash, peerId, urls, WebSocketImpl, onStatus }) {
+  constructor ({ topic, infoHash, peerId, urls, WebSocketImpl, onStatus, pairingToken }) {
     let resolveReady
     const ready = new Promise(resolve => {
       resolveReady = resolve
     })
-    super({ name: 'Native BitTorrent', peerId, topic, ready })
+    super({ name: 'Native BitTorrent', peerId, topic, ready, pairingToken })
     if (typeof WebSocketImpl !== 'function') throw new TypeError('WebSocket constructor is required for BitTorrent signaling')
     this.#WebSocket = WebSocketImpl
     this.#urls = urls
@@ -326,7 +348,7 @@ class TorrentSignalingSession extends SignalingSession {
 
   async publish (message) {
     if (this.#closed) throw new Error('Native BitTorrent signaling session is closed')
-    const signal = normalizeOutgoingSignal(message, this.topic, this.peerId)
+    const signal = await encodeOutgoingSignal(message, this.topic, this.peerId, this.pairingToken)
     if (signal.type === 'candidate') {
       throw new Error('Native BitTorrent signaling requires complete non-trickle SDP')
     }
@@ -355,7 +377,7 @@ class TorrentSignalingSession extends SignalingSession {
         action: 'announce',
         info_hash: this.#infoHash,
         peer_id: this.peerId,
-        answer: { type: 'answer', sdp: signal.sdp },
+        answer: { type: 'answer', sdp: trackerSignal(signal) },
         offer_id: signal.sessionId,
         to_peer_id: signal.to
       }))
@@ -410,11 +432,9 @@ class TorrentSignalingSession extends SignalingSession {
       this.#status(url, 'open')
     }
     socket.onmessage = event => {
-      try {
-        this.#receive(entry, JSON.parse(String(event.data)))
-      } catch (error) {
-        this.#status(url, 'error', errorMessage(error))
-      }
+      this.#messageChain = this.#messageChain
+        .then(() => this.#receive(entry, JSON.parse(String(event.data))))
+        .catch(error => this.#status(url, 'error', errorMessage(error)))
     }
     socket.onerror = event => this.#status(url, 'error', errorMessage(event?.error ?? 'WebSocket error'))
     socket.onclose = () => {
@@ -433,12 +453,12 @@ class TorrentSignalingSession extends SignalingSession {
       numwant: 3,
       offers: [...this.#offers.values()].slice(-3).map(signal => ({
         offer_id: signal.sessionId,
-        offer: { type: 'offer', sdp: signal.sdp }
+        offer: { type: 'offer', sdp: trackerSignal(signal) }
       }))
     }))
   }
 
-  #receive (entry, data) {
+  async #receive (entry, data) {
     if (typeof data?.['failure reason'] === 'string') {
       this.#status(entry.url, 'error', data['failure reason'])
       return
@@ -449,40 +469,34 @@ class TorrentSignalingSession extends SignalingSession {
     if (data?.peer_id === this.peerId || typeof data?.peer_id !== 'string' || typeof data?.offer_id !== 'string') return
 
     if (typeof data?.offer?.sdp === 'string') {
-      const signal = {
-        version: SIGNAL_VERSION,
-        room: this.topic,
+      const signal = trackerIncomingSignal(data.offer.sdp, {
+        topic: this.topic,
         type: 'offer',
         sessionId: data.offer_id,
         from: data.peer_id,
-        to: this.peerId,
-        sdp: data.offer.sdp,
-        createdAt: Date.now()
-      }
+        to: this.peerId
+      })
       this.#offerOrigins.set(`${signal.sessionId}:${signal.from}`, {
         url: entry.url,
         offerId: data.offer_id
       })
-      this.#emitOnce(signal)
+      await this.#emitOnce(signal)
       return
     }
 
     if (typeof data?.answer?.sdp === 'string' && this.#offers.has(data.offer_id)) {
       this.#offers.delete(data.offer_id)
-      this.#emitOnce({
-        version: SIGNAL_VERSION,
-        room: this.topic,
+      await this.#emitOnce(trackerIncomingSignal(data.answer.sdp, {
+        topic: this.topic,
         type: 'answer',
         sessionId: data.offer_id,
         from: data.peer_id,
-        to: this.peerId,
-        sdp: data.answer.sdp,
-        createdAt: Date.now()
-      })
+        to: this.peerId
+      }))
     }
   }
 
-  #emitOnce (signal) {
+  async #emitOnce (signal) {
     const key = `${signal.type}:${signal.sessionId}:${signal.from}`
     const lastSeen = this.#seenSignals.get(key)
     if (lastSeen != null && Date.now() - lastSeen < 5_000) return
@@ -490,7 +504,7 @@ class TorrentSignalingSession extends SignalingSession {
     for (const [storedKey, seenAt] of this.#seenSignals) {
       if (Date.now() - seenAt > SIGNAL_TTL_SECONDS * 1_000) this.#seenSignals.delete(storedKey)
     }
-    this._emit(signal)
+    await this._emit(signal)
   }
 
   #scheduleReconnect (url, retryMs) {
@@ -540,6 +554,105 @@ function normalizeOutgoingSignal (message, topic, peerId) {
     signal.candidate = message.candidate
   }
   return signal
+}
+
+async function encodeOutgoingSignal (message, topic, peerId, pairingToken) {
+  const signal = normalizeOutgoingSignal(message, topic, peerId)
+  if (pairingToken == null) return signal
+  const metadata = signalMetadata(signal)
+  const payload = encoder.encode(JSON.stringify({
+    sdp: signal.sdp,
+    candidate: signal.candidate
+  }))
+  const encrypted = await sealPairingPayload(pairingToken, 'signaling', payload, {
+    additionalData: signalAdditionalData(metadata)
+  })
+  return Object.freeze({
+    ...metadata,
+    encrypted: base64UrlEncode(encrypted)
+  })
+}
+
+async function decodeIncomingSignal (message, topic, peerId, pairingToken) {
+  if (pairingToken == null) return normalizeIncomingSignal(message, topic, peerId)
+  if (message == null || typeof message !== 'object' || typeof message.encrypted !== 'string') return null
+  const metadata = signalMetadata(message)
+  let payload
+  try {
+    const plaintext = await openPairingPayload(
+      pairingToken,
+      'signaling',
+      base64UrlDecode(message.encrypted),
+      { additionalData: signalAdditionalData(metadata) }
+    )
+    payload = JSON.parse(new TextDecoder().decode(plaintext))
+  } catch {
+    return null
+  }
+  return normalizeIncomingSignal({
+    ...metadata,
+    sdp: payload?.sdp,
+    candidate: payload?.candidate
+  }, topic, peerId)
+}
+
+function signalMetadata (signal) {
+  return {
+    version: SIGNAL_VERSION,
+    room: String(signal.room ?? ''),
+    type: String(signal.type ?? ''),
+    sessionId: String(signal.sessionId ?? ''),
+    from: String(signal.from ?? ''),
+    ...(signal.to == null ? {} : { to: String(signal.to) }),
+    createdAt: Number(signal.createdAt)
+  }
+}
+
+function signalAdditionalData (signal) {
+  return encoder.encode(JSON.stringify([
+    SIGNAL_VERSION,
+    signal.room,
+    signal.type,
+    signal.sessionId,
+    signal.from,
+    signal.to ?? '',
+    signal.createdAt
+  ]))
+}
+
+function trackerSignal (signal) {
+  if (typeof signal.encrypted !== 'string') return signal.sdp
+  return `${ENCRYPTED_SIGNAL_PREFIX}${base64UrlEncode(encoder.encode(JSON.stringify(signal)))}`
+}
+
+function trackerIncomingSignal (value, { topic, type, sessionId, from, to }) {
+  if (!String(value).startsWith(ENCRYPTED_SIGNAL_PREFIX)) {
+    return {
+      version: SIGNAL_VERSION,
+      room: topic,
+      type,
+      sessionId,
+      from,
+      to,
+      sdp: value,
+      createdAt: Date.now()
+    }
+  }
+  const decoded = JSON.parse(new TextDecoder().decode(
+    base64UrlDecode(String(value).slice(ENCRYPTED_SIGNAL_PREFIX.length))
+  ))
+  if (
+    decoded?.type !== type ||
+    decoded?.sessionId !== sessionId ||
+    decoded?.from !== from ||
+    decoded?.room !== topic
+  ) {
+    throw new Error('Encrypted tracker signal metadata does not match its announce envelope')
+  }
+  if (decoded.to != null && decoded.to !== to) {
+    throw new Error('Encrypted tracker signal is addressed to another peer')
+  }
+  return decoded
 }
 
 function normalizeIncomingSignal (message, topic, peerId) {

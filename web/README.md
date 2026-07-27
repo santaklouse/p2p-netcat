@@ -15,6 +15,8 @@ HTML, CSS, JavaScript, a Web Worker, a Service Worker, a manifest, and images.
 - connection to a CLI server by `PeerId` and logical port;
 - automatic lookup through signed GossipSub announcements, HTTP Delegated
   Routing, and IPFS Amino DHT;
+- optional `pnc1_` pairing tokens for private rotating discovery, encrypted
+  signaling, and mutual admission;
 - project-owned direct WebRTC through signed Nostr events and public WebTorrent
   trackers, with delayed Trystero compatibility fallback;
 - WebTransport or WebSocket/WSS through libp2p Circuit Relay v2;
@@ -44,6 +46,13 @@ Type `exit` or press `Ctrl-E` followed by `q` to leave. The mode is explicit
 because ordinary streams and PTY sessions share one logical protocol ID and the
 server does not send a separate mode-negotiation message. Leave the switch off
 when the listener was started without `-i`.
+
+For private access, generate a token with `p2p-nc token 31337`, start the
+listener with `P2P_NETCAT_TOKEN`, and paste the token into **Private access and
+relay**. The form obtains PeerId and port from the token. The secret is kept in
+React state for the current page lifetime and is not written to
+`localStorage`. The complete format is documented in the
+[pairing protocol](https://github.com/santaklouse/p2p-netcat/blob/main/docs/PAIRING_PROTOCOL.md).
 
 ## Architecture
 
@@ -77,6 +86,8 @@ context and its ephemeral signaling identity.
 When the relay field is empty, native WebRTC and the Worker start
 simultaneously. Native WebRTC races signed Nostr events and WebTorrent tracker
 announces; Trystero starts after four seconds only as compatibility fallback.
+With a pairing token, the Worker queries only secret-derived provider CIDs,
+native signaling encrypts SDP/ICE, and Trystero is disabled.
 The Worker listens for signed announcements on the app-specific GossipSub
 topic and resolves the PeerId through
 `https://delegated-ipfs.dev/routing/v1`, and then uses DHT as a fallback. The

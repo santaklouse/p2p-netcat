@@ -13,6 +13,7 @@ import { pubsubPeerDiscovery } from '@libp2p/pubsub-peer-discovery'
 import { bootstrap } from '@libp2p/bootstrap'
 import { mdns } from '@libp2p/mdns'
 import { kadDHT, removePrivateAddressesMapper } from '@libp2p/kad-dht'
+import { peerIdFromString } from '@libp2p/peer-id'
 import { multiaddr } from '@multiformats/multiaddr'
 import {
   PUBSUB_DISCOVERY_INTERVAL_MS,
@@ -44,6 +45,18 @@ function safePubsubPeerDiscovery (options) {
   return protectPubsubPeerDiscovery(pubsubPeerDiscovery(options))
 }
 
+function directPeersFromRelays (relayAddresses) {
+  return relayAddresses.flatMap(address => {
+    const value = multiaddr(address)
+    const peerComponent = value.getComponents().findLast(component => component.name === 'p2p')
+    if (peerComponent?.value == null) return []
+    return [{
+      id: peerIdFromString(peerComponent.value),
+      multiaddrs: [value.decapsulate(`/p2p/${peerComponent.value}`)]
+    }]
+  })
+}
+
 export async function createP2PNode ({
   privateKey,
   localPort = 0,
@@ -55,6 +68,7 @@ export async function createP2PNode ({
   enableDht = true,
   enableMdns = true,
   enablePubsub = true,
+  enablePubsubDiscovery = enablePubsub,
   pubsubIntervalMs = PUBSUB_DISCOVERY_INTERVAL_MS,
   enableQuic = true,
   relayServer = false,
@@ -90,7 +104,7 @@ export async function createP2PNode ({
   if (bootstrapPeers.length > 0) {
     peerDiscovery.push(bootstrap({ list: bootstrapPeers, timeout: 10_000 }))
   }
-  if (enablePubsub) {
+  if (enablePubsub && enablePubsubDiscovery) {
     peerDiscovery.push(safePubsubPeerDiscovery({
       interval: pubsubIntervalMs,
       topics: [PUBSUB_DISCOVERY_TOPIC]
@@ -106,7 +120,9 @@ export async function createP2PNode ({
     services.pubsub = gossipsub({
       // GossipSub uses StrictSign by default, cryptographically binding every
       // announcement to its author before peer-discovery decodes it.
-      allowPublishToZeroTopicPeers: true
+      allowPublishToZeroTopicPeers: true,
+      directPeers: directPeersFromRelays(relayAddresses),
+      doPX: relayServer
     })
   }
 

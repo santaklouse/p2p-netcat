@@ -3,7 +3,17 @@ import { once } from 'node:events'
 import { resolve } from 'node:path'
 import { createP2PNode } from './node.js'
 import { defaultIdentityPath, loadOrCreateIdentity } from './identity.js'
-import { DEFAULT_SERVICE, protocolForService, validateService } from 'p2p-netcat-core'
+import {
+  DEFAULT_SERVICE,
+  authenticateClientStream,
+  authenticateServerStream,
+  assertPairingTokenUsable,
+  createPairingToken,
+  protocolForService,
+  validateService
+} from 'p2p-netcat-core'
+import { peerIdFromPrivateKey } from '@libp2p/peer-id'
+import { multiaddr } from '@multiformats/multiaddr'
 import { APP_VERSION, IPFS_BOOTSTRAP_PEERS } from './constants.js'
 import { bridgeSession, execSession } from './session.js'
 import { advertiseSelf, resolveTarget } from './discovery.js'
@@ -11,6 +21,7 @@ import { connectWebRtc, startWebRtcListener } from './webrtc.js'
 import { startRelay } from './relay.js'
 import { socksProxySession, startLocalForward, tcpForwardSession } from './forwarding.js'
 import { interactiveClientSession, ptyServerSession } from './pty.js'
+import { loadPairingToken } from './pairing.js'
 import { quietRequested, runUnderTor } from './tor.js'
 
 let suppressDiagnostics = false
@@ -97,12 +108,19 @@ function commonNodeOptions (command) {
     .option('--no-pubsub', 'отключить подписанный GossipSub Peer Discovery')
     .option('--no-quic', 'отключить QUIC и использовать TCP/relay')
     .option('--no-webrtc', 'отключить прямой WebRTC fallback')
+    .option('--pairing-token <token>', 'приватный pairing token pnc1_...; безопаснее использовать переменную P2P_NETCAT_TOKEN')
+    .option('--pairing-token-file <file>', 'прочитать приватный pairing token из файла')
     .option('--bind <host>', 'локальный адрес для -p forwarding', '127.0.0.1')
     .option('--json', 'выводить сведения об узле в JSON в stderr')
     .option('-v, --verbose', 'подробная диагностика в stderr')
 }
 
-function nodeOptionsFrom (options, { privateKey, dhtServer = false, relayServer = false } = {}) {
+function nodeOptionsFrom (options, {
+  privateKey,
+  dhtServer = false,
+  relayServer = false,
+  privateDiscovery = false
+} = {}) {
   if (options.ipv4 && options.ipv6) throw new Error('Опции -4 и -6 нельзя использовать одновременно')
   const enableDht = options.dht !== false
 
@@ -121,6 +139,7 @@ function nodeOptionsFrom (options, { privateKey, dhtServer = false, relayServer 
     enableDht: options.tor ? false : enableDht,
     enableMdns: options.tor ? false : options.mdns !== false,
     enablePubsub: options.tor ? false : options.pubsub !== false,
+    enablePubsubDiscovery: !privateDiscovery,
     enableQuic: options.tor ? false : options.quic !== false,
     listen: options.tor ? false : true,
     dhtServer,
@@ -133,15 +152,32 @@ async function runListener (target, serviceArgument, options) {
     throw new Error('В режиме -l укажите только логический порт: p2p-nc -l 8080')
   }
 
-  const service = validateService(target ?? DEFAULT_SERVICE)
   const identityPath = resolve(options.identity ?? defaultIdentityPath())
   const privateKey = await loadOrCreateIdentity(identityPath)
-  const node = await createP2PNode(nodeOptionsFrom(options, { privateKey, dhtServer: true }))
+  const preliminaryToken = await loadPairingToken(options)
+  const service = validateService(target ?? preliminaryToken?.service ?? DEFAULT_SERVICE)
+  const expectedPeerId = peerIdFromPrivateKey(privateKey).toString()
+  const pairingToken = preliminaryToken == null
+    ? null
+    : assertPairingTokenUsable(preliminaryToken, { peerId: expectedPeerId, service })
+  const relays = options.relay.length > 0
+    ? options.relay
+    : pairingToken?.relayHints ?? []
+  options = { ...options, relay: relays }
+  const node = await createP2PNode(nodeOptionsFrom(options, {
+    privateKey,
+    dhtServer: true,
+    privateDiscovery: pairingToken != null
+  }))
   const removeSignalHandlers = installShutdown(node)
   const advertiseController = new AbortController()
   const advertiseTask = options.dht === false
     ? Promise.resolve()
-    : advertiseSelf(node, { signal: advertiseController.signal, verbose: options.verbose })
+    : advertiseSelf(node, {
+        signal: advertiseController.signal,
+        verbose: options.verbose,
+        pairingToken
+      })
   const protocol = protocolForService(service)
   const persistentMode = options.keepOpen || options.interactive || options.socks || options.port != null
   let completed
@@ -153,10 +189,21 @@ async function runListener (target, serviceArgument, options) {
       stream.abort(new Error('Слушатель принимает только одно подключение'))
       return
     }
-    handled = true
-    stderr(`[p2p-nc] peer ${remotePeer} подключен к логическому порту ${service}`)
+    if (pairingToken == null) handled = true
 
     try {
+      if (pairingToken != null) {
+        stream = await authenticateServerStream(stream, pairingToken, {
+          timeoutMs: Math.min(options.timeout * 1000, 10_000)
+        })
+        if (handled && !persistentMode) {
+          stream.abort(new Error('Слушатель уже принял другое аутентифицированное подключение'))
+          return
+        }
+        handled = true
+        stderr(`[p2p-nc] peer ${remotePeer} прошёл pairing-token authentication`)
+      }
+      stderr(`[p2p-nc] peer ${remotePeer} подключен к логическому порту ${service}`)
       if (options.interactive) {
         await ptyServerSession(stream, options)
       } else if (options.socks) {
@@ -194,12 +241,14 @@ async function runListener (target, serviceArgument, options) {
     : await startWebRtcListener({
         privateKey,
         service,
+        pairingToken,
         verbose: options.verbose,
         onStream: (stream, remotePeer) => void handleIncoming(stream, `webrtc:${remotePeer}`)
       })
 
   printNodeInfo(node, { json: options.json, label: `слушатель:${service}` })
   stderr(`[p2p-nc] постоянный ключ: ${identityPath}`)
+  if (pairingToken != null) stderr('[p2p-nc] приватный pairing-token режим включён')
 
   let previousAddresses = new Set(addressLines(node))
   node.addEventListener('self:peer:update', () => {
@@ -225,13 +274,32 @@ async function runListener (target, serviceArgument, options) {
 }
 
 async function runClient (target, serviceArgument, options) {
+  const preliminaryToken = await loadPairingToken(options)
+  target ??= preliminaryToken?.peerId
   if (target == null) {
     throw new Error('Не указан PeerId. Пример: p2p-nc 12D3KooW... 8080')
   }
 
-  const service = validateService(serviceArgument ?? DEFAULT_SERVICE)
+  const service = validateService(serviceArgument ?? preliminaryToken?.service ?? DEFAULT_SERVICE)
+  const targetPeerId = target.startsWith('/')
+    ? multiaddr(target).getComponents().findLast(component => component.name === 'p2p')?.value
+    : target
+  if (preliminaryToken != null && targetPeerId == null) {
+    throw new Error('Полный multiaddr в pairing-token режиме должен содержать целевой /p2p/PeerId')
+  }
+  const pairingToken = preliminaryToken == null
+    ? null
+    : assertPairingTokenUsable(preliminaryToken, { peerId: targetPeerId, service })
+  const explicitRelay = options.relay.length > 0
+  const relays = explicitRelay
+    ? options.relay
+    : pairingToken?.relayHints ?? []
+  options = { ...options, relay: relays }
   const privateKey = await loadOrCreateIdentity(options.identity == null ? null : resolve(options.identity))
-  const node = await createP2PNode(nodeOptionsFrom(options, { privateKey }))
+  const node = await createP2PNode(nodeOptionsFrom(options, {
+    privateKey,
+    privateDiscovery: pairingToken != null
+  }))
   const timeoutMs = options.timeout * 1000
   const libp2pController = new AbortController()
   let dialTargetPromise
@@ -244,13 +312,19 @@ async function runClient (target, serviceArgument, options) {
       relays: options.relay,
       timeoutMs,
       verbose: options.verbose,
-      signal: libp2pController.signal
+      signal: libp2pController.signal,
+      pairingToken
     })
     const dialTarget = await dialTargetPromise
-    return node.dialProtocol(dialTarget, protocolForService(service), {
+    const opened = await node.dialProtocol(dialTarget, protocolForService(service), {
       signal: AbortSignal.any([libp2pController.signal, AbortSignal.timeout(timeoutMs)]),
       runOnLimitedConnection: true
     })
+    return pairingToken == null
+      ? opened
+      : authenticateClientStream(opened, pairingToken, {
+          timeoutMs: Math.min(timeoutMs, 10_000)
+        })
   }
 
   try {
@@ -271,22 +345,37 @@ async function runClient (target, serviceArgument, options) {
 
     removeSignalHandlers = installShutdown(node)
     if (options.verbose) {
-      stderr('[p2p-nc] запускаю параллельное подключение: libp2p (DHT/PubSub) и WebRTC (Nostr/BitTorrent)')
+      const libp2pSources = pairingToken == null ? 'DHT/PubSub' : 'private DHT/relay hints'
+      stderr(`[p2p-nc] запускаю параллельное подключение: libp2p (${libp2pSources}) и WebRTC (Nostr/BitTorrent)`)
     }
     const libp2pAttempt = openLibp2pStream()
 
-    const useWebRtc = options.webrtc !== false && !options.tor && !target.startsWith('/') && options.relay.length === 0
-    if (useWebRtc) webRtcAttempt = connectWebRtc({ peerId: target, service, timeoutMs, verbose: options.verbose })
+    const useWebRtc = options.webrtc !== false && !options.tor && !target.startsWith('/') && !explicitRelay
+    if (useWebRtc) {
+      webRtcAttempt = connectWebRtc({
+        peerId: target,
+        service,
+        timeoutMs,
+        verbose: options.verbose,
+        pairingToken
+      })
+    }
     let winner
     try {
       winner = await Promise.any([
         libp2pAttempt.then(stream => ({ transport: 'libp2p', stream })),
         ...(webRtcAttempt == null
           ? []
-          : [webRtcAttempt.promise.then(stream => ({
-              transport: `WebRTC (${stream.signalingStrategy ?? 'signaling'})`,
-              stream
-            }))])
+          : [webRtcAttempt.promise
+              .then(stream => pairingToken == null
+                ? stream
+                : authenticateClientStream(stream, pairingToken, {
+                    timeoutMs: Math.min(timeoutMs, 10_000)
+                  }))
+              .then(stream => ({
+                transport: `WebRTC (${stream.signalingStrategy ?? 'signaling'})`,
+                stream
+              }))])
       ])
     } catch (error) {
       const reasons = error instanceof AggregateError ? error.errors.map(item => item.message).join('; ') : error.message
@@ -298,6 +387,7 @@ async function runClient (target, serviceArgument, options) {
     const stream = winner.stream
     if (options.verbose || options.zero) stderr(`[p2p-nc] соединение с ${target}:${service} установлено`)
     if (options.verbose) stderr(`[p2p-nc] выбран транспорт: ${winner.transport}`)
+    if (pairingToken != null && options.verbose) stderr('[p2p-nc] pairing-token authentication подтверждена')
     if (options.zero) {
       await stream.close()
       return
@@ -353,6 +443,21 @@ async function printIdentity (options) {
   })
   process.stdout.write(`${node.peerId}\n`)
   await node.stop()
+}
+
+async function printPairingToken (serviceArgument, options) {
+  const identityPath = resolve(options.identity ?? defaultIdentityPath())
+  const privateKey = await loadOrCreateIdentity(identityPath)
+  const service = validateService(serviceArgument ?? DEFAULT_SERVICE)
+  const expiresAt = options.expiresIn == null
+    ? undefined
+    : Math.floor(Date.now() / 1000) + options.expiresIn
+  process.stdout.write(`${createPairingToken({
+    peerId: peerIdFromPrivateKey(privateKey).toString(),
+    service,
+    relayHints: options.relay,
+    expiresAt
+  })}\n`)
 }
 
 export function createProgram () {
@@ -420,6 +525,14 @@ export function createProgram () {
     .description('показать постоянный PeerId слушателя и завершиться')
     .option('-I, --identity <file>', 'файл постоянного приватного ключа')
     .action(printIdentity)
+
+  program.command('token')
+    .description('создать приватный pairing token для постоянного PeerId')
+    .argument('[service]', 'логический порт сервиса', value => validateService(value))
+    .option('-I, --identity <file>', 'файл постоянного приватного ключа')
+    .option('--relay <multiaddr>', 'добавить relay hint в token; можно повторять', collect, [])
+    .option('--expires-in <seconds>', 'срок действия token в секундах', positiveInteger)
+    .action(printPairingToken)
 
   return program
 }

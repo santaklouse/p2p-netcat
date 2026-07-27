@@ -11,7 +11,9 @@
 фиксирует назначение продукта, текущую реализацию, важные решения, именование
 пакетов, алгоритмы подключения, границы безопасности, команды проверки и
 незавершённые задачи. Более подробное описание протокола находится в
-[ARCHITECTURE.RU.md](ARCHITECTURE.RU.md).
+[ARCHITECTURE.RU.md](ARCHITECTURE.RU.md), а межъязыковые форматы приватного
+доступа и граница Go-порта — в
+[PAIRING_PROTOCOL.RU.md](PAIRING_PROTOCOL.RU.md).
 
 ## 1. Краткое описание
 
@@ -52,7 +54,7 @@ STUN-серверы прозрачно используются для discovery
 
 ## 2. Текущее состояние релизов и развёртывания
 
-Следующие версии были подтверждены в манифестах репозитория и публичном npm
+Следующие версии были последним набором, подтверждённым в публичном npm
 registry 2026-07-27:
 
 | Артефакт | Версия | npm-пакет или URL |
@@ -62,6 +64,10 @@ registry 2026-07-27:
 | Собранная статическая PWA | `0.4.0` | `p2p-netcat-web` |
 | Английская production PWA | — | <https://santaklouse.github.io/p2p-netcat/> |
 | Русская production PWA | — | <https://santaklouse.github.io/p2p-netcat/?lang=ru> |
+
+Текущие исходные манифесты являются release candidate для CLI `3.2.0`, core
+`0.4.0` и web `0.5.0`. Нельзя называть эти версии опубликованными, пока после
+явно запрошенного релиза не проверен npm registry.
 
 Канонический репозиторий:
 <https://github.com/santaklouse/p2p-netcat>.
@@ -97,6 +103,16 @@ path репозитория, тестирует результат и публи
    [WEBRTC_MIGRATION.RU.md](WEBRTC_MIGRATION.RU.md).
 10. Нужно сохранять посторонние изменения в working tree. Для воспроизводимой
     проверки используются `npm ci` и зафиксированные lockfile.
+11. Будущая реализация будет написана на Go. Поэтому новое кроссплатформенное
+    поведение должно использовать версионированные byte formats, стандартную
+    криптографию, явную ширину и byte order чисел, детерминированные test
+    vectors и небольшие platform adapters, а не соглашения JavaScript runtime.
+
+Текущий release candidate добавляет приватный pairing:
+canonical token `pnc1_`, вращающиеся DHT provider CID, зашифрованный native
+signaling, взаимный stream admission, примитивы подписанного RouteRecord и
+одинаковая схема клиента в CLI и браузере. Trystero остаётся только для обычного
+режима PeerId; при наличии token он никогда не запускается.
 
 ## 4. Именование пакетов и импортов
 
@@ -532,6 +548,7 @@ Tor `-T` запрещает прямой fallback, требуя relay-only за�
 | `src/node.js` | Создание Node.js libp2p |
 | `src/identity.js` | Постоянная Ed25519 identity |
 | `src/discovery.js` | DHT publication и PeerId resolution |
+| `src/pairing.js` | Загрузка token в CLI и проверка scope |
 | `src/session.js` | Bidirectional stream и command handling |
 | `src/forwarding.js` | TCP forwarding и SOCKS parsing |
 | `src/pty.js` | PTY listener/client и backpressure |
@@ -544,6 +561,10 @@ Tor `-T` запрещает прямой fallback, требуя relay-only за�
 | `packages/core/src/native-webrtc.js` | WebRTC stream и wire primitives |
 | `packages/core/src/signaling.js` | Native Nostr/tracker signaling |
 | `packages/core/src/native-endpoint.js` | Native WebRTC endpoint controller |
+| `packages/core/src/pairing.js` | Canonical token, HKDF, rendezvous и AEAD |
+| `packages/core/src/session-auth.js` | Фиксированные взаимные admission frames |
+| `packages/core/src/authenticated-stream.js` | Stream wrapper с admission |
+| `packages/core/src/route-record.js` | Signed deterministic RouteRecord codec |
 | `web/app/page.tsx` | Основной React UI |
 | `web/app/i18n.ts` | English/Russian UI и diagnostic localization |
 | `web/app/p2p-client.ts` | Transport race и Worker RPC client |

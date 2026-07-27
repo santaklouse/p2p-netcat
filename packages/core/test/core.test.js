@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { encode, rfc8949EncodeOptions } from 'cborg'
 import { generateKeyPair } from '@libp2p/crypto/keys'
 import { peerIdFromPrivateKey } from '@libp2p/peer-id'
 import {
@@ -11,36 +12,66 @@ import {
   PUBSUB_DISCOVERY_INTERVAL_MS,
   PUBSUB_DISCOVERY_TOPIC,
   PtyFrameDecoder,
+  ROUTE_CAPABILITIES,
+  SESSION_AUTH_FRAME_BYTES,
   TrysteroStream,
   WebRtcStream,
+  authenticateClientStream,
+  authenticateServerStream,
+  assertPairingTokenUsable,
+  base64UrlEncode,
+  createPairingToken,
   browserDialableAddress,
   createRelayDialPlan,
+  createSessionAuthAck,
+  createSessionAuthHello,
   createWebRtcClientChallenge,
   createWebRtcActionHub,
   createNostrSignalingSession,
   createTorrentSignalingSession,
+  decodePairingToken,
   decodeNativeWebRtcControl,
   decodeNativeWebRtcFrame,
   decodeWebRtcAuthResponse,
   defaultRtcConfiguration,
   decodePtyResize,
+  derivePairingKey,
+  deriveRendezvousId,
   encodePtyData,
   encodePtyResize,
   encodeNativeWebRtcFrame,
   encodeWebRtcAuthResponse,
   normalizeRelayAddress,
+  openPairingPayload,
+  pairingProviderCids,
+  pairingRendezvousWindows,
   preferDialAddresses,
   protocolForService,
+  rendezvousProviderCid,
+  routeCapabilityMask,
+  routeCapabilitiesFromMask,
+  sealPairingPayload,
+  signRouteRecord,
   signWebRtcAuthResponse,
   verifyWebRtcAuthResponse,
+  verifyRouteRecord,
+  verifySessionAuthAck,
+  verifySessionAuthHello,
   webRtcAuthPayload,
   webRtcClientIdFromChallenge,
   webRtcRoomId,
   validateService
 } from '../src/index.js'
 
+const TEST_SERVER_PEER_ID = '12D3KooWQ3uxpHgjDKE6vGmvzKS8RPbxUDLwJ7XCLaD6YXdUfbR9'
+
+function hex (value) {
+  return Array.from(value, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 class FakeSignalingWebSocket {
   static sockets = new Set()
+  static sent = []
 
   constructor (url) {
     this.url = url
@@ -58,6 +89,7 @@ class FakeSignalingWebSocket {
   }
 
   send (raw) {
+    FakeSignalingWebSocket.sent.push(String(raw))
     const message = JSON.parse(raw)
     if (Array.isArray(message)) {
       if (message[0] === 'REQ') {
@@ -252,6 +284,47 @@ test('native BitTorrent signaling routes offer and addressed answer', async () =
   await Promise.all([server.close(), client.close()])
 })
 
+test('pairing token encrypts SDP on native signaling relays and trackers', async () => {
+  const pairingToken = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret: new Uint8Array(32).fill(23)
+  })
+
+  for (const [createSession, url] of [
+    [createNostrSignalingSession, 'wss://private-nostr.test/'],
+    [createTorrentSignalingSession, 'wss://private-tracker.test/']
+  ]) {
+    FakeSignalingWebSocket.sent.length = 0
+    const server = await createSession({
+      roomId: 'public-peer-id-room-is-ignored',
+      peerId: 'SERVER12345678901234',
+      urls: [url],
+      WebSocket: FakeSignalingWebSocket,
+      pairingToken
+    })
+    const client = await createSession({
+      roomId: 'public-peer-id-room-is-ignored',
+      peerId: 'CLIENT12345678901234',
+      urls: [url],
+      WebSocket: FakeSignalingWebSocket,
+      pairingToken
+    })
+    await Promise.all([server.ready, client.ready])
+
+    const received = nextSignal(server)
+    await client.publish({
+      type: 'offer',
+      sessionId: 'private-session',
+      sdp: 'private-sdp-with-candidate-203.0.113.9'
+    })
+    assert.equal((await received).sdp, 'private-sdp-with-candidate-203.0.113.9')
+    assert.equal(FakeSignalingWebSocket.sent.some(raw => raw.includes('private-sdp')), false)
+
+    await Promise.all([server.close(), client.close()])
+  }
+})
+
 test('общая сеть использует одну PubSub-тему и переданный STUN-пул', () => {
   assert.equal(PUBSUB_DISCOVERY_TOPIC, 'io.github.santaklouse.p2p-netcat.peer-discovery.v1')
   assert.equal(PUBSUB_DISCOVERY_INTERVAL_MS, 10_000)
@@ -271,6 +344,286 @@ test('общая сеть использует одну PubSub-тему и пе�
   const second = defaultRtcConfiguration()
   assert.deepEqual(first.iceServers[0].urls, DEFAULT_STUN_URLS)
   assert.notEqual(first.iceServers[0].urls, second.iceServers[0].urls)
+})
+
+test('pairing token uses deterministic CBOR and validates its scope', () => {
+  const secret = Uint8Array.from({ length: 32 }, (_, index) => index)
+  const encoded = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret,
+    relayHints: [
+      '/dns4/relay-b.example/tcp/443/wss/p2p/12D3KooWEqeQRAJ61HSv9yMPk8yzjke7NxmTFcvFt4GzwXxzVjXW',
+      '/dns4/relay-a.example/tcp/443/wss/p2p/12D3KooWEqeQRAJ61HSv9yMPk8yzjke7NxmTFcvFt4GzwXxzVjXW'
+    ],
+    expiresAt: 2_000_000_000
+  })
+  const token = decodePairingToken(encoded)
+
+  assert.ok(encoded.startsWith('pnc1_'))
+  assert.equal(token.peerId, TEST_SERVER_PEER_ID)
+  assert.equal(token.service, 31337)
+  assert.deepEqual([...token.secret], [...secret])
+  assert.equal(token.relayHints[0].includes('relay-a.example'), true)
+  assert.equal(assertPairingTokenUsable(encoded, {
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    nowSeconds: 1_900_000_000
+  }).peerId, TEST_SERVER_PEER_ID)
+  assert.throws(() => assertPairingTokenUsable(encoded, {
+    service: 31338,
+    nowSeconds: 1_900_000_000
+  }), /logical port 31337/)
+
+  const nonCanonical = encode(new Map([
+    [0, 1],
+    [1, TEST_SERVER_PEER_ID],
+    [2, 31337],
+    [3, secret],
+    [4, []]
+  ]), {
+    ...rfc8949EncodeOptions,
+    mapSorter: (left, right) => -rfc8949EncodeOptions.mapSorter(left, right)
+  })
+  assert.throws(
+    () => decodePairingToken(`pnc1_${base64UrlEncode(nonCanonical)}`),
+    /not in RFC 8949 deterministic form/
+  )
+  assert.throws(() => createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret,
+    relayHints: ['/dns4/relay.example/tcp/443/wss']
+  }), /relay PeerId is missing/)
+})
+
+test('rotating rendezvous and provider CIDs are deterministic across time windows', async () => {
+  const token = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret: new Uint8Array(32).fill(7)
+  })
+  const id = await deriveRendezvousId(token, { purpose: 'dht', epoch: 12345 })
+  const repeated = await deriveRendezvousId(token, { purpose: 'dht', epoch: 12345 })
+  const windows = await pairingRendezvousWindows(token, {
+    purpose: 'dht',
+    nowMs: 12345 * 300 * 1000,
+    intervalSeconds: 300
+  })
+  const cids = await pairingProviderCids(token, {
+    nowMs: 12345 * 300 * 1000,
+    intervalSeconds: 300
+  })
+
+  assert.equal(id, repeated)
+  assert.match(id, /^[A-Za-z0-9_-]{43}$/)
+  assert.deepEqual(windows.map(window => window.epoch), [12344, 12345, 12346])
+  assert.equal(windows[1].id, id)
+  assert.equal(cids.length, 3)
+  assert.ok(cids.every(cid => cid.version === 1))
+})
+
+test('pairing wire format matches the language-neutral interoperability vector', async () => {
+  const token = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret: Uint8Array.from({ length: 32 }, (_, index) => index),
+    relayHints: [],
+    expiresAt: 2_000_000_000
+  })
+  assert.equal(
+    token,
+    'pnc1_pgABAXg0MTJEM0tvb1dRM3V4cEhnakRLRTZ2R212ektTOFJQYnhVREx3SjdYQ0xhRDZZWGRVZmJSOQIZemkDWCAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwSABRp3NZQA'
+  )
+  assert.equal(
+    hex(await derivePairingKey(token, 'rendezvous')),
+    'e8d5fc0873810ff06039af654896909c86521e878d5970c3f8b3fed58df0385f'
+  )
+  assert.equal(
+    hex(await derivePairingKey(token, 'signaling')),
+    'f4c7b6f69d0024bdfec6c7c017843977f3adb728bb1f398b09e222031d19abeb'
+  )
+  assert.equal(
+    hex(await derivePairingKey(token, 'admission')),
+    '976b46fe450808bae0694e793fc9db6de10107ffa58b7b0cbfa8e86cb94a3b57'
+  )
+  assert.equal(
+    hex(await derivePairingKey(token, 'route-record')),
+    '7fe47fb8573ec1e37980a3621d29cf2a7f8f600ab41663821a87280b15070fd4'
+  )
+
+  const rendezvous = await deriveRendezvousId(token, { purpose: 'dht', epoch: 12345 })
+  assert.equal(rendezvous, '9mtMRyxbxPkVQlj7WJW9oCXuVBlgtkxzj9z0F0H8gW0')
+  assert.equal(
+    (await rendezvousProviderCid(rendezvous)).toString(),
+    'bafkreihzwnotx7weylzypbxqzsogwwec44rq6ujft6ewn4lh3jjdscylgi'
+  )
+
+  const envelope = await sealPairingPayload(
+    token,
+    'signaling',
+    new TextEncoder().encode('hello'),
+    {
+      additionalData: new TextEncoder().encode('vector-aad'),
+      nonce: Uint8Array.from({ length: 12 }, (_, index) => index)
+    }
+  )
+  assert.equal(
+    hex(envelope),
+    'a30001014c000102030405060708090a0b02556e5682c115e1b4ce0fe7930b863d097a7734a2b530'
+  )
+
+  const hello = await createSessionAuthHello(token, {
+    nowSeconds: 1_700_000_000,
+    nonce: Uint8Array.from({ length: 16 }, (_, index) => index)
+  })
+  assert.equal(
+    hex(hello.frame),
+    '504e43410101000000006553f100000102030405060708090a0b0c0d0e0ffa6363937e457a4bad2b60a5d0ab571b842cd30db93d77d613aca8a0208b5e23'
+  )
+  assert.equal(
+    hex(await createSessionAuthAck(token, hello, {
+      nonce: Uint8Array.from({ length: 16 }, (_, index) => 0xf0 + index)
+    })),
+    '504e43410102000000006553f100f0f1f2f3f4f5f6f7f8f9fafbfcfdfeffc0c3fb8250fd6fae4e1e58520ed5048f7da7dec31f0bf355c1d0c4e8c3910b61'
+  )
+})
+
+test('pairing AEAD hides payloads and rejects altered context', async () => {
+  const token = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret: new Uint8Array(32).fill(11)
+  })
+  const plaintext = new TextEncoder().encode('private SDP candidate 203.0.113.9')
+  const additionalData = new TextEncoder().encode('offer/session-1')
+  const envelope = await sealPairingPayload(token, 'signaling', plaintext, {
+    additionalData,
+    nonce: new Uint8Array(12).fill(3)
+  })
+  const opened = await openPairingPayload(token, 'signaling', envelope, { additionalData })
+
+  assert.deepEqual(opened, plaintext)
+  assert.equal(new TextDecoder().decode(envelope).includes('203.0.113.9'), false)
+  await assert.rejects(
+    openPairingPayload(token, 'signaling', envelope, {
+      additionalData: new TextEncoder().encode('answer/session-1')
+    }),
+    /authentication failed/
+  )
+})
+
+test('pairing session authentication is mutual and rejects a different secret', async () => {
+  const token = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret: new Uint8Array(32).fill(17)
+  })
+  const otherToken = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret: new Uint8Array(32).fill(18)
+  })
+  const client = await createSessionAuthHello(token, {
+    nowSeconds: 1_900_000_000,
+    nonce: new Uint8Array(16).fill(1)
+  })
+  assert.equal(client.frame.byteLength, SESSION_AUTH_FRAME_BYTES)
+  const hello = await verifySessionAuthHello(token, client.frame, {
+    nowSeconds: 1_900_000_010
+  })
+  const ack = await createSessionAuthAck(token, hello, {
+    nonce: new Uint8Array(16).fill(2)
+  })
+
+  await verifySessionAuthAck(token, client, ack)
+  await assert.rejects(
+    verifySessionAuthHello(otherToken, client.frame, { nowSeconds: 1_900_000_010 }),
+    /authentication failed/
+  )
+})
+
+test('authenticated stream removes admission frames before application data', async () => {
+  const token = createPairingToken({
+    peerId: TEST_SERVER_PEER_ID,
+    service: 31337,
+    secret: new Uint8Array(32).fill(19)
+  })
+  let clientTransport
+  let serverTransport
+  clientTransport = new WebRtcStream({
+    keepAliveIntervalMs: 0,
+    sendData: bytes => serverTransport.receiveData(bytes),
+    sendControl: control => serverTransport.receiveControl(control)
+  })
+  serverTransport = new WebRtcStream({
+    keepAliveIntervalMs: 0,
+    sendData: bytes => clientTransport.receiveData(bytes),
+    sendControl: control => clientTransport.receiveControl(control)
+  })
+  await new Promise(resolve => setImmediate(resolve))
+
+  const [client, server] = await Promise.all([
+    authenticateClientStream(clientTransport, token),
+    authenticateServerStream(serverTransport, token)
+  ])
+  client.send(new TextEncoder().encode('application-data'))
+  await client.onDrain()
+  const received = await server[Symbol.asyncIterator]().next()
+
+  assert.equal(new TextDecoder().decode(received.value), 'application-data')
+  await Promise.all([client.close(), server.close()])
+})
+
+test('signed route records bind addresses and services to the exact PeerId', async () => {
+  const privateKey = await generateKeyPair('Ed25519')
+  const peerId = peerIdFromPrivateKey(privateKey).toString()
+  const capabilities = routeCapabilityMask({
+    quic: true,
+    webrtc: true,
+    relay: true
+  })
+  const signed = await signRouteRecord(privateKey, {
+    sequence: 42,
+    issuedAt: 1_900_000_000,
+    expiresAt: 1_900_000_180,
+    services: [31337, 8080],
+    addresses: ['/ip4/203.0.113.7/udp/4001/quic-v1'],
+    relayReservations: [
+      `/dns4/relay.example/tcp/443/wss/p2p/${TEST_SERVER_PEER_ID}/p2p-circuit`
+    ],
+    capabilities
+  })
+  const record = await verifyRouteRecord(signed, {
+    expectedPeerId: peerId,
+    expectedService: 31337,
+    nowSeconds: 1_900_000_030
+  })
+
+  assert.equal(record.peerId, peerId)
+  assert.equal(record.sequence, 42)
+  assert.deepEqual(routeCapabilitiesFromMask(record.capabilities), {
+    tcp: false,
+    quic: true,
+    ws: false,
+    wss: false,
+    webtransport: false,
+    webrtc: true,
+    relay: true
+  })
+  await assert.rejects(
+    verifyRouteRecord(signed, {
+      expectedPeerId: TEST_SERVER_PEER_ID,
+      nowSeconds: 1_900_000_030
+    }),
+    /belongs to PeerId/
+  )
+  const altered = signed.slice()
+  altered[altered.length - 1] ^= 1
+  await assert.rejects(verifyRouteRecord(altered, {
+    nowSeconds: 1_900_000_030
+  }))
+  assert.equal((capabilities & ROUTE_CAPABILITIES.webrtc) !== 0, true)
 })
 
 test('общая библиотека валидирует логический порт и protocol id', () => {

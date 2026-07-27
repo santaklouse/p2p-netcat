@@ -4,6 +4,10 @@ import type { PrivateKey } from "@libp2p/interface";
 export * from "./native-webrtc.js";
 export * from "./signaling.js";
 export * from "./native-endpoint.js";
+export * from "./pairing.js";
+export * from "./route-record.js";
+export * from "./session-auth.js";
+export * from "./authenticated-stream.js";
 
 export const APP_NAME: "p2p-netcat";
 export const PROTOCOL_PREFIX: "/p2p-netcat/1.0.0";

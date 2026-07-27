@@ -11,7 +11,9 @@ This is the fast handoff document for maintainers and language models. It
 captures the product intent, current implementation, important decisions,
 package naming, connection algorithms, security boundaries, verification
 commands, and unfinished work. Detailed protocol explanations remain in
-[ARCHITECTURE.md](ARCHITECTURE.md).
+[ARCHITECTURE.md](ARCHITECTURE.md). The language-neutral private access formats
+and Go port boundary are specified in
+[PAIRING_PROTOCOL.md](PAIRING_PROTOCOL.md).
 
 ## 1. Executive summary
 
@@ -52,8 +54,8 @@ third-party systems guarantees that two arbitrary peers will always connect.
 
 ## 2. Current release and deployment state
 
-The following versions were confirmed both in the repository manifests and on
-the public npm registry on 2026-07-27:
+The following versions were the last set confirmed on the public npm registry
+on 2026-07-27:
 
 | Artifact | Version | npm entry or URL |
 |---|---:|---|
@@ -62,6 +64,10 @@ the public npm registry on 2026-07-27:
 | Prebuilt static PWA | `0.4.0` | `p2p-netcat-web` |
 | English production PWA | — | <https://santaklouse.github.io/p2p-netcat/> |
 | Russian production PWA | — | <https://santaklouse.github.io/p2p-netcat/?lang=ru> |
+
+The current source manifests are release candidates for CLI `3.2.0`, core
+`0.4.0`, and web `0.5.0`. Do not describe those versions as published until
+the npm registry has been checked after an explicit release.
 
 Canonical source repository:
 <https://github.com/santaklouse/p2p-netcat>.
@@ -97,6 +103,16 @@ explicitly changes the product direction:
    [WEBRTC_MIGRATION.md](WEBRTC_MIGRATION.md) has passed.
 10. Preserve unrelated working-tree changes. Use `npm ci` and the committed
     lockfiles for reproducible verification.
+11. A future implementation will be written in Go. New cross-platform behavior
+    must therefore use versioned byte formats, standard cryptography, explicit
+    integer widths and byte order, deterministic test vectors, and small
+    platform adapters instead of JavaScript runtime conventions.
+
+The current release candidate adds private pairing:
+canonical `pnc1_` tokens, rotating DHT provider CIDs, encrypted native
+signaling, mutual stream admission, signed RouteRecord primitives, and the same
+client flow in the CLI and browser. Trystero remains available only in ordinary
+PeerId mode; token mode never starts it.
 
 ## 4. Package and import naming
 
@@ -536,6 +552,7 @@ server's application-layer destinations from all involved parties.
 | `src/node.js` | Node.js libp2p construction |
 | `src/identity.js` | Persistent Ed25519 identity |
 | `src/discovery.js` | DHT publication and PeerId resolution |
+| `src/pairing.js` | CLI token loading and scope validation |
 | `src/session.js` | Bidirectional stream/command handling |
 | `src/forwarding.js` | TCP forwarding and SOCKS parsing |
 | `src/pty.js` | PTY listener/client and backpressure |
@@ -548,6 +565,10 @@ server's application-layer destinations from all involved parties.
 | `packages/core/src/native-webrtc.js` | WebRTC stream and wire primitives |
 | `packages/core/src/signaling.js` | Native Nostr and tracker signaling |
 | `packages/core/src/native-endpoint.js` | Native WebRTC endpoint controller |
+| `packages/core/src/pairing.js` | Canonical token, HKDF, rendezvous, and AEAD |
+| `packages/core/src/session-auth.js` | Fixed mutual admission frames |
+| `packages/core/src/authenticated-stream.js` | Admission-aware stream wrapper |
+| `packages/core/src/route-record.js` | Signed deterministic RouteRecord codec |
 | `web/app/page.tsx` | Main React UI |
 | `web/app/i18n.ts` | English/Russian UI and diagnostic localization |
 | `web/app/p2p-client.ts` | Transport race and Worker RPC client |

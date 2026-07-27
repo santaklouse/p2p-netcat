@@ -22,6 +22,8 @@ JavaScript-клиентами.
 - browser-safe кадрирование PTY-данных/resize и инкрементальное декодирование;
 - собственное бинарное кадрирование WebRTC и lifecycle `RTCPeerConnection`;
 - подписанные Nostr и WebTorrent tracker signaling adapters;
+- canonical pairing token, вращающиеся rendezvous-ключи и AES-GCM envelopes;
+- взаимный stream admission и подписанный RouteRecord codec;
 - независимое от signaling сопоставление WebRTC actions;
 - согласованный flow control WebRTC с окном байтов, подтверждениями, keepalive,
   EOF, abort и восстановлением.
@@ -64,6 +66,15 @@ JavaScript-клиентами.
 | `createTorrentSignalingSession(options)` | Открывает signaling через WebTorrent WebSocket trackers |
 | `startNativeWebRtcListener(options)` | Отвечает на offer и отдаёт аутентифицированные `WebRtcStream` |
 | `connectNativeWebRtc(options)` | Соревнуёт signaling sessions, проверяет PeerId и восстанавливает поток |
+| `createPairingToken(input)` / `decodePairingToken(value)` | Создаёт или проверяет canonical bearer token `pnc1_` |
+| `pairingProviderCids(token, options)` | Выводит приватные IPFS provider CID предыдущего, текущего и следующего окна |
+| `sealPairingPayload(...)` / `openPairingPayload(...)` | Защищает binary payload отдельным AES-256-GCM ключом |
+| `authenticateClientStream(...)` / `authenticateServerStream(...)` | Выполняет взаимный admission, не передавая его frames приложению |
+| `signRouteRecord(...)` / `verifyRouteRecord(...)` | Подписывает и проверяет route metadata для точного PeerId |
+
+Форматы pairing не зависят от JavaScript и снабжены фиксированными
+interoperability vectors для будущей реализации на Go. См.
+[спецификацию приватного pairing](https://github.com/santaklouse/p2p-netcat/blob/main/docs/PAIRING_PROTOCOL.RU.md).
 
 Приоритет сортировки: WebRTC Direct, QUIC v1, WebTransport, WSS, WS, TCP,
 прочие адреса и Circuit Relay. Наличие позиции в общем рейтинге не означает,

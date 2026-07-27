@@ -21,6 +21,8 @@ The package owns:
 - browser-safe PTY data/resize framing and incremental decoding;
 - project-owned WebRTC binary framing and `RTCPeerConnection` lifecycle;
 - signed Nostr and WebTorrent tracker signaling adapters;
+- canonical pairing tokens, rotating rendezvous keys, and AES-GCM envelopes;
+- mutual stream admission and signed RouteRecord codecs;
 - signaling-independent WebRTC action mapping;
 - negotiated WebRTC byte-window flow control, acknowledgements, keepalive, EOF,
   abort, and reconnect semantics.
@@ -63,6 +65,15 @@ in platform-specific packages.
 | `createTorrentSignalingSession(options)` | Opens WebTorrent WebSocket tracker signaling |
 | `startNativeWebRtcListener(options)` | Answers offers and exposes authenticated `WebRtcStream` instances |
 | `connectNativeWebRtc(options)` | Races signaling sessions, authenticates the PeerId, and reconnects the stream |
+| `createPairingToken(input)` / `decodePairingToken(value)` | Creates or validates a canonical `pnc1_` bearer token |
+| `pairingProviderCids(token, options)` | Derives previous/current/next private IPFS provider CIDs |
+| `sealPairingPayload(...)` / `openPairingPayload(...)` | Protects a binary payload with a domain-separated AES-256-GCM key |
+| `authenticateClientStream(...)` / `authenticateServerStream(...)` | Performs mutual token admission without exposing frames to the application |
+| `signRouteRecord(...)` / `verifyRouteRecord(...)` | Signs and validates versioned route metadata against an exact PeerId |
+
+The pairing formats are specified independently of JavaScript and include
+fixed interoperability vectors for the future Go implementation. See the
+[private pairing and wire protocol](https://github.com/santaklouse/p2p-netcat/blob/main/docs/PAIRING_PROTOCOL.md).
 
 The order is WebRTC Direct, QUIC v1, WebTransport, WSS, WS, TCP, other
 addresses, and Circuit Relay. A transport appearing in the common ranking does

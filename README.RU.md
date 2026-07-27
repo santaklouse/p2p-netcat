@@ -15,6 +15,9 @@ Relay v2.
 - [Подробная архитектура и алгоритм работы](docs/ARCHITECTURE.RU.md) —
   идентичность, discovery, выбор маршрута, CLI, браузер, relay, шифрование,
   backpressure и обработка ошибок;
+- [Приватный pairing и wire-протокол](docs/PAIRING_PROTOCOL.RU.md) —
+  canonical CBOR token, вращающийся rendezvous, зашифрованный signaling,
+  взаимный admission, RouteRecord, test vectors и граница будущего Go-порта;
 - [Руководство по установке](docs/INSTALLATION.RU.md) — npm one-liner, первое
   подключение, обновление, удаление, identity и диагностика;
 - [Миграция WebRTC без Trystero](docs/WEBRTC_MIGRATION.RU.md) — текущая граница
@@ -39,6 +42,8 @@ Relay v2.
 - логические порты: один PeerId может предоставлять разные сервисы;
 - поиск только по PeerId через mDNS, подписанные GossipSub-объявления и IPFS
   Amino DHT;
+- необязательные приватные pairing token с вращающимися DHT-ключами,
+  зашифрованным signaling, взаимным admission и без публичного PeerId lookup;
 - собственный прямой WebRTC-путь, который и в Node.js, и в браузере параллельно
   использует подписанные события публичных Nostr relay и WebTorrent trackers;
 - отложенный Trystero fallback для совместимости с уже опубликованными peers;
@@ -129,6 +134,36 @@ p2p-nc 12D3KooWLs9pvVfwbo6yHsYB66kRLq2RJwfH3bBQZhp94kerbFd9 8080
 ```bash
 p2p-nc id
 ```
+
+### Приватный pairing
+
+Создайте bearer token из той же постоянной identity, которую использует
+слушатель:
+
+```bash
+p2p-nc token 8080 --identity ~/.config/p2p-netcat/identity.key
+```
+
+Передайте полученное значение `pnc1_...` по доверенному каналу. На обоих
+компьютерах лучше использовать environment variable, чтобы секрет не попал в
+аргументы процесса:
+
+```bash
+export P2P_NETCAT_TOKEN='pnc1_...'
+```
+
+Теперь слушатель и клиент могут не указывать PeerId и порт:
+
+```bash
+p2p-nc -l -i
+p2p-nc -i
+```
+
+Эти команды запускаются на разных компьютерах. Приватный режим публикует
+вращающиеся provider CID из секрета, шифрует native WebRTC signaling, отключает
+публичный compatibility-путь Trystero и выполняет взаимный admission до приёма
+PTY или прикладных байтов. Формат подробно описан в
+[wire-спецификации](docs/PAIRING_PROTOCOL.RU.md).
 
 Серверный ключ создаётся в `~/.config/p2p-netcat/identity.key` с правами `0600`.
 Удаление ключа создаст новый PeerId. Клиентская идентичность временная, если явно

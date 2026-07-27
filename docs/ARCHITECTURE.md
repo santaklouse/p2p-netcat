@@ -123,8 +123,10 @@ the resulting candidate multiaddrs are the parallel part.
 Native WebRTC runs in parallel with the complete libp2p branch. Server and
 client derive a deterministic room from `PeerId + logical port`, hash it into a
 signaling topic, and race project-owned Nostr and WebTorrent tracker adapters.
-Public relays and trackers carry only SDP signaling. A Trystero compatibility
-attempt starts after four seconds if native WebRTC has not already won.
+In ordinary PeerId mode public relays and trackers carry SDP signaling, and a
+Trystero compatibility attempt starts after four seconds if native WebRTC has
+not already won. With a pairing token, the topic is secret-derived, SDP and ICE
+are AES-256-GCM encrypted, and Trystero is not started.
 
 Each connection attempt sends a random 32-byte challenge. The CLI server signs
 a domain-separated transcript with its persistent Ed25519 key; the client
@@ -178,8 +180,12 @@ does not make PeerId lookup globally guaranteed: an announcement propagates
 only through connected subscribers that carry the same application topic.
 Generic public IPFS bootstrap nodes are not required to carry that topic. The
 CLI option `--no-pubsub` disables this branch. A p2p-netcat relay participates
-by default and can therefore forward announcements between already connected
-clients.
+by default, enables GossipSub peer exchange, and can therefore forward
+announcements between already connected clients. Explicit relay addresses are
+configured as GossipSub `directPeers` so the mesh maintains those connections.
+Private pairing disables the CLI's global peer-discovery announcements, keeps
+the browser Worker out of the public discovery topic, and uses rotating secret
+DHT provider keys instead.
 
 ## Secure channel and data flow
 
@@ -187,6 +193,13 @@ Discovery is a routing aid, not a trust anchor. During the libp2p handshake the
 remote peer proves ownership of the target PeerId key. A mismatched identity is
 rejected. Direct QUIC uses QUIC TLS 1.3; the configured libp2p connection
 encrypter is Noise. Yamux carries the selected logical-port stream.
+
+When a pairing token is present, a second mutual admission handshake runs
+inside the already protected stream. The client and server exchange fixed
+HMAC-SHA-256 frames with independent nonces; neither side exposes application
+bytes until the other proves knowledge of the token. The complete,
+language-neutral format and Go interoperability vectors are in
+[PAIRING_PROTOCOL.md](PAIRING_PROTOCOL.md).
 
 Application data is an unframed byte stream—there is no JSON envelope or line
 protocol. CLI sending and receiving run concurrently and honor backpressure.
@@ -263,7 +276,8 @@ unless the peer is locally reachable.
 - Automatic tracker reconnection improves availability but cannot make a
   third-party signaling network 100% reliable.
 - Public IPFS peers do not guarantee arbitrary Circuit Relay capacity.
-- There is no PeerId allowlist or application authorization layer yet.
+- Ordinary PeerId mode has no allowlist or application authorization layer;
+  private pairing adds bearer-token admission.
 - Netcat-style UDP datagrams are not implemented; QUIC still carries a reliable
   ordered stream.
 - An IPFS HTTP gateway is neither a transport nor a Circuit Relay.
@@ -272,7 +286,11 @@ unless the peer is locally reachable.
 
 | File | Responsibility |
 |---|---|
-| `packages/core/src/index.js` | Validation, protocol IDs, PTY codec, relay plans, discovery constants, STUN pool |
+| `packages/core/src/pairing.js` | Pairing token, HKDF, rotating rendezvous CIDs, and AEAD |
+| `packages/core/src/session-auth.js` | Language-neutral mutual admission frames |
+| `packages/core/src/authenticated-stream.js` | Admission handshake stream adapter |
+| `packages/core/src/route-record.js` | Signed deterministic route-record codec |
+| `packages/core/src/index.js` | Public browser-safe core exports |
 | `src/identity.js` | CLI Ed25519 identity storage |
 | `src/node.js` | Node.js libp2p and signed PubSub discovery construction |
 | `src/relay.js` | Public `p2p-netcat/relay` lifecycle API |

@@ -3,6 +3,7 @@
 import {
   PTY_FRAME_DATA,
   PtyFrameDecoder,
+  assertPairingTokenUsable,
   createSignalingPeerId,
   encodePtyData,
   encodePtyResize,
@@ -58,12 +59,18 @@ class WorkerP2PClient {
     });
   }
 
-  async start() {
-    return this.request<string>("start");
+  async start(pairingToken = "") {
+    return this.request<string>("start", { privateDiscovery: pairingToken.trim().length > 0 });
   }
 
-  async connect(targetPeerId: string, logicalPort: number, relayAddress: string, timeout: number) {
-    await this.request("connect", { targetPeerId, logicalPort, relayAddress, timeout });
+  async connect(
+    targetPeerId: string,
+    logicalPort: number,
+    relayAddress: string,
+    timeout: number,
+    pairingToken: string,
+  ) {
+    await this.request("connect", { targetPeerId, logicalPort, relayAddress, timeout, pairingToken });
   }
 
   async send(bytes: Uint8Array) {
@@ -194,22 +201,39 @@ export class BrowserP2PClient {
     this.worker = new WorkerP2PClient(this.transportEvents);
   }
 
-  start() {
-    return this.worker.start();
+  start(pairingToken = "") {
+    return this.worker.start(pairingToken);
   }
 
-  async connect(targetPeerId: string, logicalPort: number, relayAddress: string, interactive = false, timeout: number) {
+  async connect(
+    targetPeerId: string,
+    logicalPort: number,
+    relayAddress: string,
+    interactive = false,
+    timeout: number,
+    pairingTokenValue = "",
+  ) {
     this.interactive = interactive;
     this.ptyDecoder.reset();
+    const pairingToken = pairingTokenValue.trim();
+    if (pairingToken.length > 0) {
+      assertPairingTokenUsable(pairingToken, {
+        peerId: targetPeerId,
+        service: logicalPort,
+      });
+      this.events.onLog("Приватный pairing-token режим включён");
+    }
     if (relayAddress.trim()) {
-      await this.worker.connect(targetPeerId, logicalPort, relayAddress, timeout);
+      await this.worker.connect(targetPeerId, logicalPort, relayAddress, timeout, pairingToken);
       this.active = "worker";
       this.events.onLog("Выбран указанный libp2p relay", "success");
       return;
     }
 
     const nativeWebRtc = new BrowserNativeWebRtcClient(this.transportEvents);
-    const legacyWebRtc = new BrowserLegacyWebRtcClient(this.transportEvents);
+    const legacyWebRtc = pairingToken.length === 0
+      ? new BrowserLegacyWebRtcClient(this.transportEvents)
+      : null;
     const signalingPeerId = createSignalingPeerId();
     this.nativeWebRtc = nativeWebRtc;
     this.legacyWebRtc = legacyWebRtc;
@@ -219,22 +243,27 @@ export class BrowserP2PClient {
       LEGACY_WEBRTC_FALLBACK_DELAY_MS,
       Math.max(500, Math.floor(timeout * 250)),
     );
-    const legacyPromise = new Promise<"legacy-webrtc">((resolve, reject) => {
-      rejectDelayedLegacy = reject;
-      legacyTimer = window.setTimeout(() => {
-        legacyTimer = null;
-        this.events.onLog("WebRTC: собственный signaling пока не нашёл пир; запускаем Trystero fallback");
-        void legacyWebRtc
-          .connect(
-            targetPeerId,
-            logicalPort,
-            Math.max(1_000, timeout * 1000 - fallbackDelayMs),
-            signalingPeerId,
-          )
-          .then(() => resolve("legacy-webrtc"), reject);
-      }, fallbackDelayMs);
-    });
-    legacyPromise.catch(() => {});
+    const legacyPromise = legacyWebRtc == null
+      ? null
+      : new Promise<"legacy-webrtc">((resolve, reject) => {
+          rejectDelayedLegacy = reject;
+          legacyTimer = window.setTimeout(() => {
+            legacyTimer = null;
+            this.events.onLog("WebRTC: собственный signaling пока не нашёл пир; запускаем Trystero fallback");
+            void legacyWebRtc
+              .connect(
+                targetPeerId,
+                logicalPort,
+                Math.max(1_000, timeout * 1000 - fallbackDelayMs),
+                signalingPeerId,
+              )
+              .then(() => resolve("legacy-webrtc"), reject);
+          }, fallbackDelayMs);
+        });
+    legacyPromise?.catch(() => {});
+    if (pairingToken.length > 0) {
+      this.events.onLog("WebRTC: pairing token отключает публичный Trystero fallback");
+    }
     const cancelDelayedLegacy = () => {
       if (legacyTimer == null) return;
       window.clearTimeout(legacyTimer);
@@ -244,23 +273,23 @@ export class BrowserP2PClient {
 
     try {
       const winner = await Promise.any([
-        this.worker.connect(targetPeerId, logicalPort, "", timeout).then(() => "worker" as const),
+        this.worker.connect(targetPeerId, logicalPort, "", timeout, pairingToken).then(() => "worker" as const),
         nativeWebRtc
-          .connect(targetPeerId, logicalPort, timeout * 1000, signalingPeerId)
+          .connect(targetPeerId, logicalPort, timeout * 1000, signalingPeerId, pairingToken)
           .then(() => "native-webrtc" as const),
-        legacyPromise,
+        ...(legacyPromise == null ? [] : [legacyPromise]),
       ]);
       this.active = winner;
       if (winner === "worker") {
         cancelDelayedLegacy();
-        await Promise.allSettled([nativeWebRtc.stop(), legacyWebRtc.stop()]);
+        await Promise.allSettled([nativeWebRtc.stop(), legacyWebRtc?.stop() ?? Promise.resolve()]);
         this.nativeWebRtc = null;
         this.legacyWebRtc = null;
         this.events.onLog("Выбран libp2p IPFS-маршрут", "success");
       } else if (winner === "native-webrtc") {
         cancelDelayedLegacy();
         this.worker.cancel();
-        await legacyWebRtc.stop();
+        await legacyWebRtc?.stop();
         this.legacyWebRtc = null;
         this.events.onLog("Выбран собственный прямой WebRTC-канал", "success");
       } else {
@@ -271,7 +300,7 @@ export class BrowserP2PClient {
       }
     } catch (error) {
       cancelDelayedLegacy();
-      await Promise.allSettled([nativeWebRtc.stop(), legacyWebRtc.stop()]);
+      await Promise.allSettled([nativeWebRtc.stop(), legacyWebRtc?.stop() ?? Promise.resolve()]);
       this.nativeWebRtc = null;
       this.legacyWebRtc = null;
       const reasons = error instanceof AggregateError

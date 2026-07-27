@@ -17,14 +17,18 @@ import { multiaddr, type Multiaddr } from "@multiformats/multiaddr";
 import {
   PUBSUB_DISCOVERY_INTERVAL_MS,
   PUBSUB_DISCOVERY_TOPIC,
+  assertPairingTokenUsable,
+  authenticateClientStream,
   browserDialableAddress,
   createRelayDialPlan,
   isWebSocketAddress,
   normalizePeerId,
+  pairingProviderCids,
   preferDialAddresses,
   protocolForService,
   validateService,
 } from "p2p-netcat-core";
+import type { PairingToken } from "p2p-netcat-core";
 
 const workerScope: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 type Node = Awaited<ReturnType<typeof createLibp2p>>;
@@ -181,24 +185,45 @@ async function fetchRoutingRecords(endpoint: string, path: string, signal: Abort
   return value.Peers ?? value.Providers ?? [];
 }
 
-async function delegatedAddresses(peerId: ReturnType<typeof peerIdFromString>, endpoints: string[]) {
+async function delegatedAddresses(
+  peerId: ReturnType<typeof peerIdFromString>,
+  endpoints: string[],
+  pairingToken: PairingToken | null,
+) {
+  const providerCids = pairingToken == null
+    ? [peerId.toCID()]
+    : await pairingProviderCids(pairingToken, { offsets: [-1, 0, 1] });
   const paths = [
-    `peers/${encodeURIComponent(peerId.toString())}`,
-    `providers/${encodeURIComponent(peerId.toCID().toString())}`,
+    ...(pairingToken == null ? [`peers/${encodeURIComponent(peerId.toString())}`] : []),
+    ...providerCids.map((cid) => `providers/${encodeURIComponent(cid.toString())}`),
   ];
-  const requests = endpoints.flatMap((endpoint) => paths.map(async (path) => {
-    const records = await fetchRoutingRecords(endpoint, path, AbortSignal.timeout(8_000));
-    return records.flatMap((record) => {
-      try {
-        if (record.ID != null && normalizePeerId(record.ID) !== peerId.toString()) return [];
-      } catch {
-        return [];
-      }
-      return record.Addrs ?? [];
-    });
-  }));
-  const results = await Promise.allSettled(requests);
-  return browserAddresses(results.flatMap((result) => result.status === "fulfilled" ? result.value : []));
+  const requests = endpoints.flatMap((endpoint) => paths.map((path) => ({ endpoint, path })));
+  const controllers = requests.map(() => new AbortController());
+  try {
+    return await Promise.any(requests.map(async ({ endpoint, path }, index) => {
+      const records = await fetchRoutingRecords(endpoint, path, AbortSignal.any([
+        controllers[index].signal,
+        AbortSignal.timeout(8_000),
+      ]));
+      const addresses = browserAddresses(records.flatMap((record) => {
+        try {
+          if (pairingToken != null && record.ID == null) return [];
+          if (record.ID != null && normalizePeerId(record.ID) !== peerId.toString()) return [];
+        } catch {
+          return [];
+        }
+        return record.Addrs ?? [];
+      }));
+      if (addresses.length === 0) throw new Error("Delegated routing returned no browser-dialable address");
+      return addresses;
+    }));
+  } catch {
+    return [];
+  } finally {
+    for (const controller of controllers) {
+      controller.abort(new Error("Delegated routing completed through another endpoint"));
+    }
+  }
 }
 
 async function knownAddresses(target: ReturnType<typeof peerIdFromString>) {
@@ -210,7 +235,11 @@ async function knownAddresses(target: ReturnType<typeof peerIdFromString>) {
   }
 }
 
-async function dhtAddresses(target: ReturnType<typeof peerIdFromString>, timeoutMs = 20_000) {
+async function dhtAddresses(
+  target: ReturnType<typeof peerIdFromString>,
+  pairingToken: PairingToken | null,
+  timeoutMs = 20_000,
+) {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
 
@@ -219,23 +248,42 @@ async function dhtAddresses(target: ReturnType<typeof peerIdFromString>, timeout
     if (known.length > 0) return known;
 
     try {
-      const querySignal = AbortSignal.timeout(Math.min(5_000, Math.max(1, deadline - Date.now())));
-      for await (const provider of node!.contentRouting.findProviders(target.toCID(), { signal: querySignal })) {
-        if (!provider.id.equals(target)) continue;
-        const addresses = browserAddresses(provider.multiaddrs.map((address) => address.toString()));
-        if (addresses.length > 0) return addresses;
+      const providerCids = pairingToken == null
+        ? [target.toCID()]
+        : await pairingProviderCids(pairingToken, { offsets: [-1, 0, 1] });
+      const controllers = providerCids.map(() => new AbortController());
+      try {
+        const addresses = await Promise.any(providerCids.map(async (cid, index) => {
+          const querySignal = AbortSignal.any([
+            controllers[index].signal,
+            AbortSignal.timeout(Math.min(5_000, Math.max(1, deadline - Date.now()))),
+          ]);
+          for await (const provider of node!.contentRouting.findProviders(cid, { signal: querySignal })) {
+            if (!provider.id.equals(target)) continue;
+            const found = browserAddresses(provider.multiaddrs.map((address) => address.toString()));
+            if (found.length > 0) return found;
+          }
+          throw new Error("Provider record not found in this rendezvous window");
+        }));
+        return addresses;
+      } finally {
+        for (const controller of controllers) {
+          controller.abort(new Error("Provider lookup completed in another rendezvous window"));
+        }
       }
     } catch (error) {
       lastError = error;
     }
 
-    try {
-      const querySignal = AbortSignal.timeout(Math.min(5_000, Math.max(1, deadline - Date.now())));
-      const info = await node!.peerRouting.findPeer(target, { signal: querySignal });
-      const addresses = browserAddresses(info.multiaddrs.map((address) => address.toString()));
-      if (addresses.length > 0) return addresses;
-    } catch (error) {
-      lastError = error;
+    if (pairingToken == null) {
+      try {
+        const querySignal = AbortSignal.timeout(Math.min(5_000, Math.max(1, deadline - Date.now())));
+        const info = await node!.peerRouting.findPeer(target, { signal: querySignal });
+        const addresses = browserAddresses(info.multiaddrs.map((address) => address.toString()));
+        if (addresses.length > 0) return addresses;
+      } catch (error) {
+        lastError = error;
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -267,7 +315,7 @@ async function dialFirst(candidates: Multiaddr[], protocol: string, timeoutMs = 
   }
 }
 
-async function startNode() {
+async function startNode(privateDiscovery = false) {
   if (node != null) return node.peerId.toString();
   postLog("Сетевой стек запускается в Web Worker…");
   assertWebCrypto();
@@ -291,10 +339,12 @@ async function startNode() {
     },
     peerDiscovery: [
       bootstrap({ list: [...IPFS_BOOTSTRAP_PEERS], timeout: 10_000 }),
-      pubsubPeerDiscovery({
-        interval: PUBSUB_DISCOVERY_INTERVAL_MS,
-        topics: [PUBSUB_DISCOVERY_TOPIC],
-      }),
+      ...(privateDiscovery
+        ? []
+        : [pubsubPeerDiscovery({
+            interval: PUBSUB_DISCOVERY_INTERVAL_MS,
+            topics: [PUBSUB_DISCOVERY_TOPIC],
+          })]),
     ],
     connectionGater: {
       denyDialMultiaddr: () => false,
@@ -314,12 +364,16 @@ async function startNode() {
 
 async function connect(payload: Record<string, unknown>) {
   if (stream != null) throw new Error("Соединение уже открыто");
-  await startNode();
   const targetPeerId = normalizePeerId(payload.targetPeerId);
   const target = peerIdFromString(targetPeerId);
   const service = validateService(payload.logicalPort);
   const protocol = protocolForService(service);
   const relay = String(payload.relayAddress ?? "").trim();
+  const pairingTokenValue = String(payload.pairingToken ?? "").trim();
+  const pairingToken = pairingTokenValue.length === 0
+    ? null
+    : assertPairingTokenUsable(pairingTokenValue, { peerId: targetPeerId, service });
+  await startNode(pairingToken != null);
 
   if (relay.length > 0) {
     const plan = createRelayDialPlan({
@@ -347,10 +401,10 @@ async function connect(payload: Record<string, unknown>) {
     if (stream == null) postLog(`Ищем ${targetPeerId}:${service} через подписанный PubSub, delegated routing и IPFS DHT…`);
     if (stream == null) {
       const config = await loadNetworkConfig();
-      const delegated = await delegatedAddresses(target, config.delegatedRouting);
-      const discovered = delegated.length > 0 ? delegated : await dhtAddresses(target);
+      const delegated = await delegatedAddresses(target, config.delegatedRouting, pairingToken);
+      const discovered = delegated.length > 0 ? delegated : await dhtAddresses(target, pairingToken);
       const directCandidates = discovered.map((address) => multiaddr(targetAddress(address, targetPeerId)));
-      const relayCandidates = config.relays.flatMap((address) => {
+      const relayCandidates = [...(pairingToken?.relayHints ?? []), ...config.relays].flatMap((address) => {
         try {
           return [multiaddr(createRelayDialPlan({
             peerId: targetPeerId,
@@ -373,6 +427,15 @@ async function connect(payload: Record<string, unknown>) {
       stream = winner.stream;
       await cacheAddress(targetPeerId, winner.address);
     }
+  }
+
+  if (stream == null) throw new Error("Транспорт не вернул поток");
+  if (pairingToken != null) {
+    postLog("Проверяем взаимное знание pairing token…");
+    stream = await authenticateClientStream(stream, pairingToken, {
+      timeoutMs: Math.min(10_000, Number(payload.timeout ?? 30) * 1000),
+    });
+    postLog("Pairing token подтверждён обеими сторонами", "success");
   }
 
   postLog(`Канал ${targetPeerId}:${service} открыт`, "success");
@@ -465,7 +528,7 @@ workerScope.addEventListener("message", (event: MessageEvent<WorkerRequest>) => 
   void (async () => {
     try {
       let value: unknown;
-      if (action === "start") value = await startNode();
+      if (action === "start") value = await startNode(Boolean(payload.privateDiscovery));
       else if (action === "connect") value = await connectWithTimeout(payload);
       else if (action === "send") value = await send(payload.bytes as ArrayBuffer);
       else if (action === "closeWrite") {

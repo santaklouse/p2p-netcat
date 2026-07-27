@@ -15,6 +15,8 @@ CSS, JavaScript, Web Worker, Service Worker, manifest и изображений.
 - подключение к CLI-серверу по `PeerId` и логическому порту;
 - автоматический поиск через подписанные GossipSub-объявления, HTTP Delegated
   Routing и IPFS Amino DHT;
+- необязательный pairing token `pnc1_` для приватного вращающегося discovery,
+  зашифрованного signaling и взаимного admission;
 - собственный прямой WebRTC через подписанные Nostr events и публичные
   WebTorrent trackers с отложенным Trystero compatibility fallback;
 - WebTransport или WebSocket/WSS через libp2p Circuit Relay v2;
@@ -44,6 +46,12 @@ p2p-nc -l -i 31337
 явный, потому что обычный поток и PTY используют один логический protocol ID и
 сервер не отправляет отдельное сообщение согласования режима. Если listener
 запущен без `-i`, оставьте этот переключатель выключенным.
+
+Для приватного доступа создайте token командой `p2p-nc token 31337`, запустите
+listener с `P2P_NETCAT_TOKEN` и вставьте token в раздел «Приватный доступ и
+relay». Форма получает PeerId и порт из token. Секрет хранится только в React
+state текущей страницы и не записывается в `localStorage`. Полный формат описан
+в [спецификации pairing](https://github.com/santaklouse/p2p-netcat/blob/main/docs/PAIRING_PROTOCOL.RU.md).
 
 ## Архитектура
 
@@ -77,6 +85,8 @@ JavaScript-контекст браузера и его временную signal
 При пустом поле relay одновременно запускаются native WebRTC и Worker. Native
 WebRTC соревнуёт подписанные Nostr events и WebTorrent tracker announce, а
 Trystero запускается через четыре секунды только как compatibility fallback.
+С pairing token Worker запрашивает только provider CID из секрета, native
+signaling шифрует SDP/ICE, а Trystero отключается.
 Worker слушает подписанные объявления в отдельной GossipSub-теме приложения,
 запрашивает адрес PeerId через `https://delegated-ipfs.dev/routing/v1`, затем
 использует DHT как fallback. Первый аутентифицированный канал побеждает.

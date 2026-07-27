@@ -2,6 +2,7 @@ import { FormEvent, Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { BrowserTerminalHandle } from "./browser-terminal";
 import { getLanguageUrl, getPageLanguage, localizeDiagnostic, uiText } from "./i18n";
 import { BrowserP2PClient } from "./p2p-client";
+import { decodePairingToken } from "p2p-netcat-core";
 
 const BrowserTerminal = lazy(() => import("./browser-terminal"));
 const INSTALL_COMMAND = "npm install --global p2p-netcat@latest";
@@ -23,6 +24,7 @@ export default function Home() {
   const copy = uiText[language];
   const alternateLanguage = language === "en" ? "ru" : "en";
   const [targetPeerId, setTargetPeerId] = useState("");
+  const [pairingToken, setPairingToken] = useState("");
   const [relayAddress, setRelayAddress] = useState("");
   const [logicalPort, setLogicalPort] = useState(31337);
   const [timeout, setTimeout] = useState(30);
@@ -124,12 +126,12 @@ export default function Home() {
     clientRef.current = client;
 
     try {
-      setLocalPeerId(await client.start());
+      setLocalPeerId(await client.start(pairingToken));
       setConnectionState("connecting");
       if (relayAddress.trim()) window.localStorage.setItem("p2p-netcat-relay", relayAddress.trim());
       else window.localStorage.removeItem("p2p-netcat-relay");
       window.localStorage.setItem("p2p-netcat-interactive", String(interactive));
-      await client.connect(targetPeerId, logicalPort, relayAddress, interactive, timeout);
+      await client.connect(targetPeerId, logicalPort, relayAddress, interactive, timeout, pairingToken);
       setConnectionState("connected");
       if (interactive) addLog(copy.ptyEnabled, "success");
     } catch (error) {
@@ -225,6 +227,19 @@ export default function Home() {
         `${copy.copyFailed}: ${error instanceof Error ? error.message : String(error)}`,
         "error",
       );
+    }
+  };
+
+  const updatePairingToken = (value: string) => {
+    setPairingToken(value);
+    const normalized = value.trim();
+    if (!normalized) return;
+    try {
+      const decoded = decodePairingToken(normalized);
+      setTargetPeerId(decoded.peerId);
+      setLogicalPort(decoded.service);
+    } catch {
+      // Validation is shown when the user submits the form.
     }
   };
 
@@ -326,9 +341,23 @@ export default function Home() {
 
             <details className="relay-options">
               <summary>
-                <span>{copy.additionalRelay}</span>
-                <small>{relayAddress ? copy.manualRoute : copy.automaticDiscovery}</small>
+                <span>{copy.advancedConnection}</span>
+                <small>{pairingToken ? copy.privateDiscovery : relayAddress ? copy.manualRoute : copy.automaticDiscovery}</small>
               </summary>
+              <label>
+                <span>{copy.pairingToken}</span>
+                <textarea
+                  value={pairingToken}
+                  onChange={(event) => updatePairingToken(event.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={sessionActive}
+                  placeholder="pnc1_…"
+                  aria-describedby="pairing-token-help"
+                  rows={3}
+                />
+                <small id="pairing-token-help">{copy.pairingTokenHelp}</small>
+              </label>
               <label>
                 <span>WebSocket relay multiaddr</span>
                 <input
@@ -403,7 +432,10 @@ export default function Home() {
 
           <div className="security-note">
             <span className="lock-icon" aria-hidden="true">◆</span>
-            <p><strong>{copy.endToEndEncryption}</strong>{copy.securityNote}</p>
+            <p>
+              <strong>{copy.endToEndEncryption}</strong>
+              {pairingToken ? copy.pairingSecurityNote : copy.securityNote}
+            </p>
           </div>
         </aside>
 
@@ -509,7 +541,7 @@ export default function Home() {
       </section>
 
       <footer>
-        <p>p2p-netcat web <span>v0.4.0</span></p>
+        <p>p2p-netcat web <span>v0.5.0</span></p>
         <p>Delegated Routing · IPFS DHT · WSS · Noise · Yamux</p>
       </footer>
     </main>

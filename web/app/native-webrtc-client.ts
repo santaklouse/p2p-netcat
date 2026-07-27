@@ -3,6 +3,7 @@
 import {
   WEBRTC_RECONNECT_GRACE_MS,
   WebRtcStream,
+  authenticateClientStream,
   connectNativeWebRtc,
   createNostrSignalingSession,
   createSignalingPeerId,
@@ -30,6 +31,7 @@ export class BrowserNativeWebRtcClient {
     logicalPort: number,
     timeoutMs = 30_000,
     signalingPeerId = createSignalingPeerId(),
+    pairingToken = "",
   ) {
     if (typeof RTCPeerConnection === "undefined") throw new Error("WebRTC не поддерживается этим браузером");
     if (typeof WebSocket === "undefined") throw new Error("WebSocket signaling не поддерживается этим браузером");
@@ -45,8 +47,20 @@ export class BrowserNativeWebRtcClient {
       this.events.onLog(`${adapter}: ${url}: ${state}${detail == null ? "" : ` (${detail})`}`);
     };
     const results = await Promise.allSettled([
-      createNostrSignalingSession({ roomId, peerId: signalingPeerId, WebSocket, onStatus: status }),
-      createTorrentSignalingSession({ roomId, peerId: signalingPeerId, WebSocket, onStatus: status }),
+      createNostrSignalingSession({
+        roomId,
+        peerId: signalingPeerId,
+        WebSocket,
+        onStatus: status,
+        pairingToken: pairingToken || undefined,
+      }),
+      createTorrentSignalingSession({
+        roomId,
+        peerId: signalingPeerId,
+        WebSocket,
+        onStatus: status,
+        pairingToken: pairingToken || undefined,
+      }),
     ]);
     const signalingSessions = results
       .filter((result): result is PromiseFulfilledResult<NativeSignalingSession> => result.status === "fulfilled")
@@ -95,10 +109,18 @@ export class BrowserNativeWebRtcClient {
       onLog: (message) => this.events.onLog(`WebRTC: ${message}`),
     });
     this.connection = connection;
-    const stream = await connection.promise;
+    const openedStream = await connection.promise;
     if (this.stopped) {
       await connection.close();
       throw new Error("WebRTC-подключение отменено");
+    }
+    const stream = pairingToken.length === 0
+      ? openedStream
+      : await authenticateClientStream(openedStream, pairingToken, {
+          timeoutMs: Math.min(timeoutMs, 10_000),
+        });
+    if (pairingToken.length > 0) {
+      this.events.onLog("Pairing token подтверждён обеими сторонами", "success");
     }
     this.stream = stream;
     this.receiveTask = this.receiveLoop(stream);

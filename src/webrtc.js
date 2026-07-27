@@ -81,12 +81,13 @@ function nativeStatusLog (verbose, status) {
   verboseLog(true, `WebRTC/${status.adapter}: ${status.url}: ${status.state}${detail}`)
 }
 
-async function createNativeSessions (roomId, signalingPeerId, verbose) {
+async function createNativeSessions (roomId, signalingPeerId, verbose, pairingToken) {
   const options = {
     roomId,
     peerId: signalingPeerId,
     WebSocket: globalThis.WebSocket,
-    onStatus: status => nativeStatusLog(verbose, status)
+    onStatus: status => nativeStatusLog(verbose, status),
+    pairingToken
   }
   const results = await Promise.allSettled([
     createNostrSignalingSession(options),
@@ -454,7 +455,13 @@ function connectLegacyWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = f
   }
 }
 
-export async function startWebRtcListener ({ privateKey, service, onStream, verbose = false }) {
+export async function startWebRtcListener ({
+  privateKey,
+  service,
+  onStream,
+  verbose = false,
+  pairingToken
+}) {
   const peerId = peerIdFromPrivateKey(privateKey).toString()
   const roomId = webRtcRoomId(peerId, service)
   const signalingPeerId = createSignalingPeerId()
@@ -487,7 +494,7 @@ export async function startWebRtcListener ({ privateKey, service, onStream, verb
   }
 
   try {
-    const signalingSessions = await createNativeSessions(roomId, signalingPeerId, verbose)
+    const signalingSessions = await createNativeSessions(roomId, signalingPeerId, verbose, pairingToken)
     listeners.push(startNativeWebRtcListener({
       signalingSessions,
       RTCPeerConnection,
@@ -515,17 +522,21 @@ export async function startWebRtcListener ({ privateKey, service, onStream, verb
     verboseLog(verbose, `WebRTC/native: listener не запущен: ${error.message}`)
   }
 
-  try {
-    listeners.push(startLegacyWebRtcListener({
-      privateKey,
-      service,
-      verbose,
-      onStream: acceptStream,
-      onClosed: forgetStream
-    }))
-    verboseLog(verbose, 'WebRTC/Trystero: временный fallback совместимости запущен')
-  } catch (error) {
-    verboseLog(verbose, `WebRTC/Trystero: fallback не запущен: ${error.message}`)
+  if (pairingToken == null) {
+    try {
+      listeners.push(startLegacyWebRtcListener({
+        privateKey,
+        service,
+        verbose,
+        onStream: acceptStream,
+        onClosed: forgetStream
+      }))
+      verboseLog(verbose, 'WebRTC/Trystero: временный fallback совместимости запущен')
+    } catch (error) {
+      verboseLog(verbose, `WebRTC/Trystero: fallback не запущен: ${error.message}`)
+    }
+  } else {
+    verboseLog(verbose, 'WebRTC: приватный режим использует только зашифрованный native signaling')
   }
 
   if (listeners.length === 0) throw new Error('Не удалось запустить ни один WebRTC listener')
@@ -538,7 +549,13 @@ export async function startWebRtcListener ({ privateKey, service, onStream, verb
   }
 }
 
-export function connectWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = false }) {
+export function connectWebRtc ({
+  peerId,
+  service,
+  timeoutMs = 30_000,
+  verbose = false,
+  pairingToken
+}) {
   const roomId = webRtcRoomId(peerId, service)
   const signalingPeerId = createSignalingPeerId()
   const attempts = []
@@ -551,7 +568,7 @@ export function connectWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = 
     strategy: { label: 'Native Nostr/BitTorrent' },
     connection: null,
     promise: (async () => {
-      const signalingSessions = await createNativeSessions(roomId, signalingPeerId, verbose)
+      const signalingSessions = await createNativeSessions(roomId, signalingPeerId, verbose, pairingToken)
       if (closed) {
         await Promise.allSettled(signalingSessions.map(session => session.close()))
         throw new Error('WebRTC-подключение отменено')
@@ -587,40 +604,44 @@ export function connectWebRtc ({ peerId, service, timeoutMs = 30_000, verbose = 
   attempts.push(nativeAttempt)
   verboseLog(verbose, 'WebRTC/native: ищу пир через собственные Nostr и BitTorrent adapters')
 
-  const fallbackDelayMs = Math.min(LEGACY_FALLBACK_DELAY_MS, Math.max(500, Math.floor(timeoutMs / 4)))
-  const delayedLegacy = {
-    strategy: { label: 'Trystero fallback' },
-    promise: new Promise((resolve, reject) => {
-      rejectDelayedLegacy = reject
-      legacyTimer = setTimeout(() => {
-        legacyTimer = undefined
-        if (closed) {
-          reject(new Error('Trystero fallback отменён'))
-          return
+  if (pairingToken == null) {
+    const fallbackDelayMs = Math.min(LEGACY_FALLBACK_DELAY_MS, Math.max(500, Math.floor(timeoutMs / 4)))
+    const delayedLegacy = {
+      strategy: { label: 'Trystero fallback' },
+      promise: new Promise((resolve, reject) => {
+        rejectDelayedLegacy = reject
+        legacyTimer = setTimeout(() => {
+          legacyTimer = undefined
+          if (closed) {
+            reject(new Error('Trystero fallback отменён'))
+            return
+          }
+          verboseLog(verbose, `WebRTC/Trystero: native-канал не найден за ${fallbackDelayMs / 1000} с, запускаю fallback`)
+          legacyAttempt = connectLegacyWebRtc({
+            peerId,
+            service,
+            timeoutMs: Math.max(1_000, timeoutMs - fallbackDelayMs),
+            verbose,
+            signalingPeerId
+          })
+          legacyAttempt.promise.then(resolve, reject)
+        }, fallbackDelayMs)
+        legacyTimer.unref?.()
+      }),
+      async close () {
+        if (legacyTimer != null) {
+          clearTimeout(legacyTimer)
+          legacyTimer = undefined
+          rejectDelayedLegacy?.(new Error('Trystero fallback отменён'))
         }
-        verboseLog(verbose, `WebRTC/Trystero: native-канал не найден за ${fallbackDelayMs / 1000} с, запускаю fallback`)
-        legacyAttempt = connectLegacyWebRtc({
-          peerId,
-          service,
-          timeoutMs: Math.max(1_000, timeoutMs - fallbackDelayMs),
-          verbose,
-          signalingPeerId
-        })
-        legacyAttempt.promise.then(resolve, reject)
-      }, fallbackDelayMs)
-      legacyTimer.unref?.()
-    }),
-    async close () {
-      if (legacyTimer != null) {
-        clearTimeout(legacyTimer)
-        legacyTimer = undefined
-        rejectDelayedLegacy?.(new Error('Trystero fallback отменён'))
+        await legacyAttempt?.close()
       }
-      await legacyAttempt?.close()
     }
+    delayedLegacy.promise.catch(() => {})
+    attempts.push(delayedLegacy)
+  } else {
+    verboseLog(verbose, 'WebRTC: приватный режим не использует Trystero fallback')
   }
-  delayedLegacy.promise.catch(() => {})
-  attempts.push(delayedLegacy)
 
   const promise = Promise.any(attempts.map(attempt => (
     attempt.promise.then(stream => ({ attempt, stream }))
