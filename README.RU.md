@@ -1,5 +1,10 @@
 # p2p-netcat
 
+> [!WARNING]
+> **Проект устарел (deprecated).** JavaScript-репозиторий сохранён для
+> совместимости и истории. Активная разработка продолжается в
+> [go-p2p-netcat](https://github.com/santaklouse/go-p2p-netcat).
+
 [English](README.md) | **Русский**
 
 `p2p-nc` — консольная JavaScript-утилита в духе `netcat`, где вместо IP-адреса

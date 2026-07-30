@@ -1,5 +1,10 @@
 # p2p-netcat
 
+> [!WARNING]
+> **Deprecated.** This JavaScript repository is archived for compatibility and
+> historical reference. Active development continues in
+> [go-p2p-netcat](https://github.com/santaklouse/go-p2p-netcat).
+
 **English** | [Русский](README.RU.md)
 
 `p2p-nc` is a JavaScript command-line utility inspired by `netcat`. Instead of
